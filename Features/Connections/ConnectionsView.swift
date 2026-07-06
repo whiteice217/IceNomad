@@ -9,36 +9,57 @@ import SwiftUI
 
 // MARK: - Models
 
-enum ConnectionType: String, CaseIterable, Identifiable {
+enum ConnectionType: String, CaseIterable, Identifiable, Codable {
     case tcpClient = "TCP Client"
     case rNode = "RNode"
 
     var id: String { rawValue }
 }
 
-struct Connection: Identifiable {
-    let id = UUID()
-    var name: String
-    var address: String
-    var port: String
-    var type: ConnectionType
-}
-
 // MARK: - RNode Config
 
-struct RNodeConfig {
+struct RNodeConfig: Codable {
     var name: String = ""
     var device: String = ""
 
-    var freqGHz: String = ""
+    var freqGHz: String = "0"
     var freqMHz: String = "915"
-    var freqKHz: String = ""
+    var freqKHz: String = "0"
+    var freqHz: String = "0"
 
     var bandwidth: String = "125 KHz"
     var transmitPower: String = "7"
     var spreadingFactor: String = "8"
     var codingRate: String = "5"
+
+    var frequencyHzString: String {
+        
+        let ghz = Int(freqGHz) ?? 0
+        let mhz = Int(freqMHz) ?? 0
+        let khz = Int(freqKHz) ?? 0
+        let hz = Int(freqHz) ?? 0
+
+        let totalHz = (ghz * 1_000_000_000) +
+                      (mhz * 1_000_000) +
+                      (khz * 1_000) +
+                      (hz * 1)
+
+        return String(format: "%012d", totalHz)
+    }
 }
+
+// MARK: - Connection
+
+struct Connection: Identifiable, Codable {
+    var id = UUID()
+
+    var name: String
+    var address: String = ""
+    var port: String = ""
+    var type: ConnectionType
+    var rnodeConfig: RNodeConfig? = nil
+}
+
 
 // MARK: - State
 
@@ -52,7 +73,7 @@ enum AddState {
 
 struct ConnectionsView: View {
 
-    @State private var connections: [Connection] = []
+    @State private var connections: [Connection] = ConnectionStorage.shared.load()
     @State private var addState: AddState = .idle
 
     // TCP
@@ -72,12 +93,14 @@ struct ConnectionsView: View {
                 if connections.isEmpty {
 
                     VStack(spacing: 16) {
+
                         Text("No Connections")
                             .font(.headline)
 
                         Button {
                             addState = .choosingType
                         } label: {
+
                             Image(systemName: "plus.circle.fill")
                                 .font(.system(size: 60))
                         }
@@ -86,36 +109,148 @@ struct ConnectionsView: View {
                 } else {
 
                     List(connections) { conn in
-                        VStack(alignment: .leading) {
-                            Text(conn.name)
-                                .font(.headline)
 
-                            Text("\(conn.address):\(conn.port)")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 8) {
 
-                            Text(conn.type.rawValue)
+                            HStack(spacing: 8) {
+
+                                Circle()
+                                    .fill(Color.red) // Placeholder: dead/offline
+                                    .frame(width: 10, height: 10)
+
+                                Text(conn.name)
+                                    .font(.headline)
+                            }
+                            
+                            switch conn.type {
+
+                            case .tcpClient:
+
+                                HStack(spacing: 4) {
+                                    Image(systemName: "network")
+
+                                    Text("TCP Client")
+                                }
                                 .font(.caption)
                                 .foregroundStyle(.blue)
+                                
+                            case .rNode:
+
+                                if let rnode = conn.rnodeConfig {
+
+
+                                    VStack(spacing: 4) {
+
+                                        HStack {
+
+                                            Text("GHz")
+                                                .frame(width: 50)
+
+                                            Text("MHz")
+                                                .frame(width: 50)
+
+                                            Text("KHz")
+                                                .frame(width: 50)
+
+                                            Text("Hz")
+                                                .frame(width: 50)
+                                        }
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+
+                                        HStack {
+
+                                            Text(String(format: "%03d", Int(rnode.freqGHz) ?? 0))
+                                                .frame(width: 50)
+
+                                            Text(String(format: "%03d", Int(rnode.freqMHz) ?? 0))
+                                                .frame(width: 50)
+
+                                            Text(String(format: "%03d", Int(rnode.freqKHz) ?? 0))
+                                                .frame(width: 50)
+
+                                            Text("000")
+                                                .frame(width: 50)
+                                        }
+                                        .font(.system(.body, design: .monospaced))
+
+                                    }
+
+                                    Divider()
+
+
+
+                                    Text("Bandwidth: \(rnode.bandwidth)")
+                                    Text("Transmit Power: \(rnode.transmitPower)")
+                                    Text("Spread: \(rnode.spreadingFactor)")
+                                    Text("Code: \(rnode.codingRate)")
+
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "wifi")
+
+                                        Text("RNode")
+                                    }
+                                    .font(.caption)
+                                    .foregroundStyle(.blue)
+                                }
+                            }
+                        }
+
+                        .swipeActions(edge: .trailing) {
+
+                            Button(role: .destructive) {
+
+                                deleteConnection(conn)
+
+                            } label: {
+
+                                Label("Delete", systemImage: "trash")
+                            }
+
+
+                            Button {
+
+                                editConnection(conn)
+
+                            } label: {
+
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            .tint(.blue)
                         }
                     }
+                    .listRowSpacing(12)
 
                     Button("Add Connection") {
+
                         addState = .choosingType
                     }
                     .padding(.bottom)
                 }
             }
+
             .navigationTitle("Connections")
+
             .sheet(isPresented: Binding(
+
                 get: {
-                    if case .idle = addState { return false }
+
+                    if case .idle = addState {
+                        return false
+                    }
+
                     return true
                 },
+
                 set: { newValue in
-                    if !newValue { addState = .idle }
+
+                    if !newValue {
+                        addState = .idle
+                    }
                 }
+
             )) {
+
                 addFlowView
             }
         }
@@ -137,20 +272,35 @@ struct ConnectionsView: View {
                 Text("Select Connection Type")
                     .font(.headline)
 
-                Button("TCP Client") {
+                Button {
                     resetAll()
                     addState = .enteringDetails(.tcpClient)
+                } label: {
+                    Text("TCP Client")
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
 
-                Button("RNode") {
+
+                Button {
                     resetAll()
                     addState = .enteringDetails(.rNode)
+                } label: {
+                    Text("RNode")
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
 
-                Button("Cancel") {
+                Button {
+
                     addState = .idle
+
+                } label: {
+                    Text("Cancel")
+                        .frame(maxWidth: .infinity)
                 }
-                .foregroundStyle(.red)
+                .buttonStyle(.bordered)
+                .tint(.red)
             }
             .padding()
 
@@ -177,24 +327,43 @@ struct ConnectionsView: View {
             labeledField("Address", text: $address)
             labeledField("Port", text: $port, keyboard: .numberPad)
 
-            Button("Save") {
+            HStack(spacing: 20) {
 
-                connections.append(
-                    Connection(name: name,
-                                address: address,
-                                port: port,
-                                type: .tcpClient)
-                )
+                Button {
 
-                resetAll()
-                addState = .idle
+                    connections.append(
+                        Connection(
+                            name: name,
+                            address: address,
+                            port: port,
+                            type: .tcpClient
+                        )
+                    )
+
+                    ConnectionStorage.shared.save(connections)
+
+                    resetAll()
+                    addState = .idle
+
+                } label: {
+                    Text("Save")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+
+                    resetAll()
+                    addState = .idle
+
+                } label: {
+                    Text("Cancel")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
             }
-
-            Button("Cancel") {
-                resetAll()
-                addState = .idle
-            }
-            .foregroundStyle(.red)
+            .padding(.top)
         }
         .padding()
     }
@@ -213,7 +382,7 @@ struct ConnectionsView: View {
             // Device
             HStack {
                 Text("Device")
-                    .frame(width: 120, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Menu {
                     Button("No Device") { rnode.device = "" }
@@ -232,10 +401,19 @@ struct ConnectionsView: View {
             }
 
             // Frequency
-            HStack {
-                labeledMiniField("GHz", text: $rnode.freqGHz, keyboard: .numberPad)
-                labeledMiniField("MHz", text: $rnode.freqMHz, keyboard: .numberPad)
-                labeledMiniField("KHz", text: $rnode.freqKHz, keyboard: .numberPad)
+            VStack(alignment: .leading, spacing: 6) {
+
+                HStack {
+                    labeledMiniField("GHz", text: $rnode.freqGHz, keyboard: .numberPad)
+                    labeledMiniField("MHz", text: $rnode.freqMHz, keyboard: .numberPad)
+                    labeledMiniField("KHz", text: $rnode.freqKHz, keyboard: .numberPad)
+                    labeledMiniField("Hz", text: $rnode.freqHz, keyboard: .numberPad)
+                }
+
+                Text("US Recommended: 915 MHz (Change at your own risk)")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
 
             pickerRow("Bandwidth", selection: $rnode.bandwidth, items: [
@@ -253,17 +431,46 @@ struct ConnectionsView: View {
             pickerRow("Coding Rate", selection: $rnode.codingRate,
                       items: (5...8).map { "\($0)" })
 
-            Button("Save") {
-                print("RNode:", rnode)
-                resetAll()
-                addState = .idle
-            }
+            HStack(spacing: 20) {
 
-            Button("Cancel") {
-                resetAll()
-                addState = .idle
+                Button {
+                    print("Saving frequency:", rnode.frequencyHzString)
+
+                    let connection = Connection(
+                        name: rnode.name,
+                        address: "",
+                        port: "",
+                        type: .rNode,
+                        rnodeConfig: rnode
+                    )
+
+                    connections.append(connection)
+
+                    ConnectionStorage.shared.save(connections)
+
+                    resetAll()
+                    addState = .idle
+
+                } label: {
+                    Text("Save")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+
+                    resetAll()
+                    addState = .idle
+
+                } label: {
+                    Text("Cancel")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
             }
-            .foregroundStyle(.red)
+            .padding(.top)
+
         }
         .padding()
     }
@@ -309,14 +516,37 @@ struct ConnectionsView: View {
                 .frame(width: 120, alignment: .leading)
 
             Picker("", selection: selection) {
+
                 ForEach(items, id: \.self) { item in
-                    Text(item).tag(item)
+                    Text(item)
+                        .tag(item)
                 }
             }
             .pickerStyle(.menu)
+            .onAppear {
+
+                if !items.contains(selection.wrappedValue) {
+                    selection.wrappedValue = items.first ?? ""
+                }
+            }
         }
     }
 
+    // MARK: - Swipe Actions
+
+    func deleteConnection(_ connection: Connection) {
+
+        connections.removeAll { $0.id == connection.id }
+
+        ConnectionStorage.shared.save(connections)
+    }
+
+    func editConnection(_ connection: Connection) {
+
+        print("Editing connection:", connection.name)
+
+    }
+    
     // MARK: - RESET
 
     func resetAll() {
