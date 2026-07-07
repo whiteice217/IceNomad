@@ -2,23 +2,25 @@
 //  TCPClient.swift
 //  IceNomad
 //
-//  Created by Bryan Stern on 7/6/26.
-//
 
 import Foundation
+import Network
 
 
 class TCPClient: ReticulumInterface {
 
 
     let name: String
-
     let address: String
-
     let port: String
 
 
     private(set) var isConnected: Bool = false
+
+
+    private var connection: NWConnection?
+    
+    var onStatusChanged: ((Bool) -> Void)?
 
 
     init(name: String,
@@ -39,9 +41,63 @@ class TCPClient: ReticulumInterface {
         print("Port:", port)
 
 
-        // Socket connection will go here later
+        guard let tcpPort = NWEndpoint.Port(port) else {
 
-        isConnected = true
+            print("Invalid TCP port")
+            return
+        }
+
+
+        connection = NWConnection(
+            host: NWEndpoint.Host(address),
+            port: tcpPort,
+            using: .tcp
+        )
+
+
+        connection?.stateUpdateHandler = { [weak self] state in
+
+            switch state {
+
+            case .ready:
+
+                print("TCP connection established")
+
+                self?.isConnected = true
+                self?.onStatusChanged?(true)
+                
+            case .failed(let error):
+
+                print("TCP connection failed:")
+                print(error)
+
+                self?.isConnected = false
+                self?.onStatusChanged?(false)
+                
+            case .waiting(let error):
+
+                print("TCP waiting:")
+                print(error)
+
+
+            case .cancelled:
+
+                print("TCP cancelled")
+
+                self?.isConnected = false
+                self?.onStatusChanged?(false)
+                
+            default:
+                break
+            }
+
+        }
+
+
+        connection?.start(
+            queue: .global()
+        )
+
     }
 
 
@@ -50,6 +106,8 @@ class TCPClient: ReticulumInterface {
 
         print("Stopping TCP Client")
 
+        connection?.cancel()
+
         isConnected = false
     }
 
@@ -57,8 +115,32 @@ class TCPClient: ReticulumInterface {
 
     func send(data: Data) {
 
-        print("Sending TCP data:",
-              data.count,
-              "bytes")
+        guard let connection else {
+
+            print("No TCP connection")
+            return
+        }
+
+
+        connection.send(
+            content: data,
+            completion: .contentProcessed { error in
+
+                if let error {
+
+                    print("TCP send error:")
+                    print(error)
+
+                }
+                else {
+
+                    print("TCP data sent:",
+                          data.count,
+                          "bytes")
+
+                }
+            }
+        )
     }
+
 }

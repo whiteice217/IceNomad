@@ -51,139 +51,148 @@ struct RNodeConfig: Codable {
 // MARK: - Connection
 
 struct Connection: Identifiable, Codable {
-    var id = UUID()
+    var id: UUID = UUID()
 
     var name: String
     var address: String = ""
     var port: String = ""
     var type: ConnectionType
     var rnodeConfig: RNodeConfig? = nil
-}
 
+    var isConnected: Bool = false
+}
 
 // MARK: - State
 
-enum AddState {
+enum AddState: Equatable {
     case idle
     case choosingType
     case enteringDetails(ConnectionType)
+    case editing(UUID)
 }
 
 // MARK: - View
 
 struct ConnectionsView: View {
-
+    
     @State private var connections: [Connection] = ConnectionStorage.shared.load()
     @State private var addState: AddState = .idle
-
+    @StateObject private var interfaceManager = InterfaceManager()
+    
     // TCP
     @State private var name = ""
     @State private var address = ""
     @State private var port = ""
-
+    
     // RNode
     @State private var rnode = RNodeConfig()
-
+    
     var body: some View {
-
+        
         NavigationStack {
-
+            
             VStack {
-
+                
                 if connections.isEmpty {
-
+                    
                     VStack(spacing: 16) {
-
+                        
                         Text("No Connections")
                             .font(.headline)
-
+                        
                         Button {
                             addState = .choosingType
                         } label: {
-
+                            
                             Image(systemName: "plus.circle.fill")
                                 .font(.system(size: 60))
                         }
                     }
-
+                    
                 } else {
-
+                    
                     List(connections) { conn in
-
+                        
                         VStack(alignment: .leading, spacing: 8) {
-
+                            
                             HStack(spacing: 8) {
-
+                                
                                 Circle()
-                                    .fill(Color.red)
+                                    .fill(
+                                        interfaceManager.interfaces.contains {
+                                            $0.name == conn.name && $0.isConnected
+                                        }
+                                        ? Color.green
+                                        : Color.red
+                                    )
                                     .frame(width: 10, height: 10)
-
+                                
                                 Text(conn.name)
                                     .font(.headline)
                             }
-
+                            
                             switch conn.type {
-
+                                
                             case .tcpClient:
-
+                                
                                 HStack(spacing: 4) {
                                     Image(systemName: "network")
                                     Text("TCP Client")
                                 }
                                 .font(.caption)
                                 .foregroundStyle(.blue)
-
-
+                                
+                                
                             case .rNode:
-
+                                
                                 if let rnode = conn.rnodeConfig {
-
+                                    
                                     VStack(spacing: 4) {
-
+                                        
                                         HStack {
                                             Text("GHz")
                                                 .frame(width: 50)
-
+                                            
                                             Text("MHz")
                                                 .frame(width: 50)
-
+                                            
                                             Text("KHz")
                                                 .frame(width: 50)
-
+                                            
                                             Text("Hz")
                                                 .frame(width: 50)
                                         }
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
-
-
+                                        
+                                        
                                         HStack {
-
+                                            
                                             Text(String(format: "%03d", Int(rnode.freqGHz) ?? 0))
                                                 .frame(width: 50)
-
+                                            
                                             Text(String(format: "%03d", Int(rnode.freqMHz) ?? 0))
                                                 .frame(width: 50)
-
+                                            
                                             Text(String(format: "%03d", Int(rnode.freqKHz) ?? 0))
                                                 .frame(width: 50)
-
+                                            
                                             Text(String(format: "%03d", Int(rnode.freqHz) ?? 0))
                                                 .frame(width: 50)
                                         }
                                         .font(.system(.body, design: .monospaced))
                                     }
-
-
+                                    
+                                    
                                     Divider()
-
-
+                                    
+                                    
                                     Text("Bandwidth: \(rnode.bandwidth)")
                                     Text("Transmit Power: \(rnode.transmitPower)")
                                     Text("Spread: \(rnode.spreadingFactor)")
                                     Text("Code: \(rnode.codingRate)")
-
-
+                                    
+                                    
                                     HStack(spacing: 4) {
                                         Image(systemName: "wifi")
                                         Text("RNode")
@@ -193,68 +202,83 @@ struct ConnectionsView: View {
                                 }
                             }
                         }
-
+                        
                         .swipeActions(edge: .trailing) {
-
+                            
                             Button(role: .destructive) {
-
+                                
                                 deleteConnection(conn)
-
+                                
                             } label: {
-
+                                
                                 Label("Delete", systemImage: "trash")
                             }
-
-
+                            
+                            
                             Button {
-
+                                
                                 editConnection(conn)
-
+                                
                             } label: {
-
+                                
                                 Label("Edit", systemImage: "pencil")
                             }
                             .tint(.blue)
                         }
                     }
                     .listRowSpacing(12)
-
-
+                    
+                    
                     Button {
-
+                        
                         addState = .choosingType
-
+                        
                     } label: {
-
+                        
                         HStack {
                             Image(systemName: "plus")
                             Text("Add Connection")
                         }
                         .padding(.horizontal, 20)
-
+                        
                     }
                     .buttonStyle(.borderedProminent)
                     .padding(.bottom)
                 }
+                
+                if addState != .idle {
+                    Divider()
+                    
+                    addFlowView
+                }
             }
             .navigationTitle("Connections")
         }
-    }    // MARK: - FLOW
-
+        
+        .onAppear {
+            
+            interfaceManager.loadInterfaces()
+            
+            interfaceManager.startAll()
+            
+        }
+    }
+    // MARK: - FLOW
+    
     @ViewBuilder
     var addFlowView: some View {
-
+        
         switch addState {
-
+            
         case .idle:
             EmptyView()
-
+            
         case .choosingType:
             VStack(spacing: 20) {
-
+                
                 Text("Select Connection Type")
                     .font(.headline)
-
+                
                 Button {
                     resetAll()
                     addState = .enteringDetails(.tcpClient)
@@ -263,8 +287,8 @@ struct ConnectionsView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-
-
+                
+                
                 Button {
                     resetAll()
                     addState = .enteringDetails(.rNode)
@@ -273,11 +297,10 @@ struct ConnectionsView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-
+                
+                
                 Button {
-
                     addState = .idle
-
                 } label: {
                     Text("Cancel")
                         .frame(maxWidth: .infinity)
@@ -286,62 +309,103 @@ struct ConnectionsView: View {
                 .tint(.red)
             }
             .padding()
-
+            
+            
         case .enteringDetails(let type):
-
+            
             if type == .tcpClient {
                 tcpForm()
             } else {
                 rnodeForm()
             }
+            
+            
+        case .editing(let id):
+            
+            if let connection = connections.first(where: { $0.id == id }) {
+                
+                if connection.type == .tcpClient {
+                    tcpForm()
+                } else {
+                    rnodeForm()
+                }
+                
+            } else {
+                EmptyView()
+            }
         }
     }
-
     // MARK: - TCP FORM
-
+    
     func tcpForm() -> some View {
-
+        
         VStack(spacing: 12) {
-
+            
             Text("TCP Client")
                 .font(.headline)
-
+            
             labeledField("Name", text: $name)
             labeledField("Address", text: $address)
             labeledField("Port", text: $port, keyboard: .numberPad)
-
+            
+            
             HStack(spacing: 20) {
-
+                
                 Button {
-
-                    connections.append(
-                        Connection(
-                            name: name,
-                            address: address,
-                            port: port,
-                            type: .tcpClient
+                    
+                    switch addState {
+                        
+                    case .editing(let id):
+                        
+                        if let index = connections.firstIndex(where: {
+                            $0.id == id
+                        }) {
+                            
+                            connections[index].name = name
+                            connections[index].address = address
+                            connections[index].port = port
+                        }
+                        
+                        
+                    default:
+                        
+                        connections.append(
+                            Connection(
+                                name: name,
+                                address: address,
+                                port: port,
+                                type: .tcpClient
+                            )
                         )
-                    )
-
+                    }
+                    
+                    
                     ConnectionStorage.shared.save(connections)
-
+                    
                     resetAll()
                     addState = .idle
-
+                    
+                    
                 } label: {
+                    
                     Text("Save")
                         .frame(maxWidth: .infinity)
+                    
                 }
                 .buttonStyle(.borderedProminent)
-
+                
+                
+                
                 Button {
-
+                    
                     resetAll()
                     addState = .idle
-
+                    
                 } label: {
+                    
                     Text("Cancel")
                         .frame(maxWidth: .infinity)
+                    
                 }
                 .buttonStyle(.bordered)
                 .tint(.red)
@@ -350,23 +414,22 @@ struct ConnectionsView: View {
         }
         .padding()
     }
-
     // MARK: - RNODE FORM
-
+    
     func rnodeForm() -> some View {
-
+        
         VStack(spacing: 14) {
-
+            
             Text("RNode Configuration")
                 .font(.headline)
-
+            
             labeledField("Name", text: $rnode.name)
-
+            
             // Device
             HStack {
                 Text("Device")
                     .frame(maxWidth: .infinity, alignment: .leading)
-
+                
                 Menu {
                     Button("No Device") { rnode.device = "" }
                     Button("Device A") { rnode.device = "Device A" }
@@ -382,44 +445,50 @@ struct ConnectionsView: View {
                     .cornerRadius(8)
                 }
             }
-
+            
             // Frequency
             VStack(alignment: .leading, spacing: 6) {
-
+                
                 HStack {
                     labeledMiniField("GHz", text: $rnode.freqGHz, keyboard: .numberPad)
                     labeledMiniField("MHz", text: $rnode.freqMHz, keyboard: .numberPad)
                     labeledMiniField("KHz", text: $rnode.freqKHz, keyboard: .numberPad)
                     labeledMiniField("Hz", text: $rnode.freqHz, keyboard: .numberPad)
                 }
-
+                
                 Text("US Recommended: 915 MHz (Change at your own risk)")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
-
+            
             pickerRow("Bandwidth", selection: $rnode.bandwidth, items: [
                 "7.8 KHz","10.4 KHz","15.6 KHz","20.8 KHz",
                 "31.25 KHz","41.7 KHz","62.5 KHz",
                 "125 KHz","250 KHz","500 KHz","1625 KHz"
             ])
-
+            
             pickerRow("Transmit Power", selection: $rnode.transmitPower,
                       items: (1...10).map { "\($0)" })
-
+            
             pickerRow("Spreading Factor", selection: $rnode.spreadingFactor,
                       items: (5...12).map { "\($0)" })
-
+            
             pickerRow("Coding Rate", selection: $rnode.codingRate,
                       items: (5...8).map { "\($0)" })
-
+            
             HStack(spacing: 20) {
-
+                
                 Button {
                     print("Saving frequency:", rnode.frequencyHzString)
-
+                    
                     let connection = Connection(
+                        id: {
+                            if case .editing(let id) = addState {
+                                return id
+                            }
+                            return UUID()
+                        }(),
                         name: rnode.name,
                         address: "",
                         port: "",
@@ -427,24 +496,40 @@ struct ConnectionsView: View {
                         rnodeConfig: rnode
                     )
 
-                    connections.append(connection)
+
+                    switch addState {
+
+                    case .editing(let id):
+
+                        if let index = connections.firstIndex(where: {
+                            $0.id == id
+                        }) {
+                            connections[index] = connection
+                        }
+
+
+                    default:
+
+                        connections.append(connection)
+
+                    }
+
 
                     ConnectionStorage.shared.save(connections)
 
                     resetAll()
                     addState = .idle
-
                 } label: {
                     Text("Save")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-
+                
                 Button {
-
+                    
                     resetAll()
                     addState = .idle
-
+                    
                 } label: {
                     Text("Cancel")
                         .frame(maxWidth: .infinity)
@@ -453,48 +538,49 @@ struct ConnectionsView: View {
                 .tint(.red)
             }
             .padding(.top)
-
+            
         }
         .padding()
     }
-
+    
     // MARK: - COMPONENTS
-
+    
     func labeledField(_ title: String,
                       text: Binding<String>,
                       keyboard: UIKeyboardType = .default) -> some View {
-
+        
         HStack {
             Text(title)
                 .frame(width: 120, alignment: .leading)
-
+            
             TextField("", text: text)
                 .keyboardType(keyboard)
                 .textFieldStyle(.roundedBorder)
         }
     }
-
+    
     func labeledMiniField(_ title: String,
                           text: Binding<String>,
                           keyboard: UIKeyboardType = .numberPad) -> some View {
-
+        
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-
+            
             TextField("", text: text)
                 .keyboardType(keyboard)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 90)
         }
     }
-
+    
     func pickerRow(_ title: String,
                    selection: Binding<String>,
                    items: [String]) -> some View {
 
         HStack {
+
             Text(title)
                 .frame(width: 120, alignment: .leading)
 
@@ -504,38 +590,56 @@ struct ConnectionsView: View {
                     Text(item)
                         .tag(item)
                 }
+
             }
             .pickerStyle(.menu)
-            .onAppear {
-
-                if !items.contains(selection.wrappedValue) {
-                    selection.wrappedValue = items.first ?? ""
-                }
-            }
         }
     }
+
 
     // MARK: - Swipe Actions
 
     func deleteConnection(_ connection: Connection) {
 
-        connections.removeAll { $0.id == connection.id }
+        connections.removeAll {
+            $0.id == connection.id
+        }
 
         ConnectionStorage.shared.save(connections)
     }
 
+
     func editConnection(_ connection: Connection) {
 
-        print("Editing connection:", connection.name)
+        switch connection.type {
 
+        case .tcpClient:
+
+            name = connection.name
+            address = connection.address
+            port = connection.port
+
+
+        case .rNode:
+
+            if let config = connection.rnodeConfig {
+                rnode = config
+            }
+        }
+
+        addState = .editing(connection.id)
     }
-    
+
+
     // MARK: - RESET
 
     func resetAll() {
+
         name = ""
         address = ""
         port = ""
         rnode = RNodeConfig()
+
     }
+
 }

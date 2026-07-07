@@ -6,18 +6,18 @@
 //
 
 import Foundation
+import Combine
 
+class InterfaceManager: ObservableObject {
 
-class InterfaceManager {
+    @Published private(set) var interfaces: [ReticulumInterface] = []
+    @Published var connectionStates: [String: Bool] = [:]
 
-
-    private(set) var interfaces: [ReticulumInterface] = []
-
-
+    // MARK: - Load Interfaces
 
     func loadInterfaces() {
 
-        // Clear old interfaces
+        // Remove existing interfaces
         interfaces.removeAll()
 
 
@@ -25,7 +25,6 @@ class InterfaceManager {
 
 
         for connection in connections {
-
 
             switch connection.type {
 
@@ -38,6 +37,22 @@ class InterfaceManager {
                     port: connection.port
                 )
 
+                tcp.onStatusChanged = { [weak self, weak tcp] connected in
+
+                    DispatchQueue.main.async {
+
+                        if let name = tcp?.name {
+
+                            self?.connectionStates[name] = connected
+
+                            print(
+                                name,
+                                "status changed:",
+                                connected
+                            )
+                        }
+                    }
+                }
 
                 interfaces.append(tcp)
 
@@ -51,30 +66,41 @@ class InterfaceManager {
                         config: config
                     )
 
-
                     interfaces.append(rnode)
                 }
             }
         }
+
+
+        print("Loaded interfaces:", interfaces.count)
     }
 
 
 
-    func startAll() {
+    // MARK: - Start Interfaces
 
+    func startAll() {
 
         for interface in interfaces {
 
             print("Starting interface:", interface.name)
 
             interface.start()
+
+
+            print(
+                interface.name,
+                "connected:",
+                interface.isConnected
+            )
         }
     }
 
 
 
-    func stopAll() {
+    // MARK: - Stop Interfaces
 
+    func stopAll() {
 
         for interface in interfaces {
 
