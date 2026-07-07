@@ -8,56 +8,64 @@
 import Foundation
 import Combine
 
+
 @MainActor
 class ReticulumManager: ObservableObject {
 
+
     static let shared = ReticulumManager()
 
+
     @Published var interfaces: [String] = []
+
     @Published var isRunning = false
+
+
+    private let interfaceManager = InterfaceManager()
+
 
     private init() {}
 
 
+
     func start() {
+
+        guard !isRunning else {
+            return
+        }
+
 
         print("Starting Reticulum")
 
-        loadInterfaces()
+
+        interfaceManager.loadInterfaces()
+
+
+        interfaceManager.startAll()
+
+
+        interfaces = interfaceManager.interfaces.map {
+            $0.name
+        }
+
 
         isRunning = true
     }
 
 
+
     func stop() {
+
 
         print("Stopping Reticulum")
 
+
+        interfaceManager.stopAll()
+
+
+        interfaces.removeAll()
+
+
         isRunning = false
-    }
-
-
-    private func loadInterfaces() {
-
-        let connections = ConnectionStorage.shared.load()
-
-        for connection in connections {
-
-            switch connection.type {
-
-            case .tcpClient:
-
-                print("Starting TCP:",
-                      connection.address,
-                      connection.port)
-
-
-            case .rNode:
-
-                print("Starting RNode:",
-                      connection.name)
-
-            }
-        }
     }
 }

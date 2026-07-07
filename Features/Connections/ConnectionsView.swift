@@ -115,34 +115,32 @@ struct ConnectionsView: View {
                             HStack(spacing: 8) {
 
                                 Circle()
-                                    .fill(Color.red) // Placeholder: dead/offline
+                                    .fill(Color.red)
                                     .frame(width: 10, height: 10)
 
                                 Text(conn.name)
                                     .font(.headline)
                             }
-                            
+
                             switch conn.type {
 
                             case .tcpClient:
 
                                 HStack(spacing: 4) {
                                     Image(systemName: "network")
-
                                     Text("TCP Client")
                                 }
                                 .font(.caption)
                                 .foregroundStyle(.blue)
-                                
+
+
                             case .rNode:
 
                                 if let rnode = conn.rnodeConfig {
 
-
                                     VStack(spacing: 4) {
 
                                         HStack {
-
                                             Text("GHz")
                                                 .frame(width: 50)
 
@@ -158,6 +156,7 @@ struct ConnectionsView: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
 
+
                                         HStack {
 
                                             Text(String(format: "%03d", Int(rnode.freqGHz) ?? 0))
@@ -169,15 +168,14 @@ struct ConnectionsView: View {
                                             Text(String(format: "%03d", Int(rnode.freqKHz) ?? 0))
                                                 .frame(width: 50)
 
-                                            Text("000")
+                                            Text(String(format: "%03d", Int(rnode.freqHz) ?? 0))
                                                 .frame(width: 50)
                                         }
                                         .font(.system(.body, design: .monospaced))
-
                                     }
 
-                                    Divider()
 
+                                    Divider()
 
 
                                     Text("Bandwidth: \(rnode.bandwidth)")
@@ -185,9 +183,9 @@ struct ConnectionsView: View {
                                     Text("Spread: \(rnode.spreadingFactor)")
                                     Text("Code: \(rnode.codingRate)")
 
+
                                     HStack(spacing: 4) {
                                         Image(systemName: "wifi")
-
                                         Text("RNode")
                                     }
                                     .font(.caption)
@@ -221,42 +219,27 @@ struct ConnectionsView: View {
                     }
                     .listRowSpacing(12)
 
-                    Button("Add Connection") {
+
+                    Button {
 
                         addState = .choosingType
+
+                    } label: {
+
+                        HStack {
+                            Image(systemName: "plus")
+                            Text("Add Connection")
+                        }
+                        .padding(.horizontal, 20)
+
                     }
+                    .buttonStyle(.borderedProminent)
                     .padding(.bottom)
                 }
             }
-
             .navigationTitle("Connections")
-
-            .sheet(isPresented: Binding(
-
-                get: {
-
-                    if case .idle = addState {
-                        return false
-                    }
-
-                    return true
-                },
-
-                set: { newValue in
-
-                    if !newValue {
-                        addState = .idle
-                    }
-                }
-
-            )) {
-
-                addFlowView
-            }
         }
-    }
-
-    // MARK: - FLOW
+    }    // MARK: - FLOW
 
     @ViewBuilder
     var addFlowView: some View {
