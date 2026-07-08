@@ -20,9 +20,9 @@ encrypted mesh communication using Reticulum, LXMF, LoRa, and remote nodes.
 ## Screenshots
 
 <p align="center">
-<img src="Images/Splash Screen Preview.jpeg" width="250">
-<img src="Images/Connections Preview TCP Client.jpeg" width="250">
-<img src="Images/Connections Preview RNode.jpeg" width="250">
+<img src="Images/SplashScreenPreview.jpeg" width="250">
+<img src="Images/ConnectionsPreviewTCPClient.jpeg" width="250">
+<img src="Images/ConnectionsPreviewRNode.jpeg" width="250">
 </p>
 
 
