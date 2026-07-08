@@ -25,7 +25,6 @@ encrypted mesh communication using Reticulum, LXMF, LoRa, and remote nodes.
 <img src="Images/ConnectionsPreviewRNode.jpeg" width="250">
 </p>
 
-
 ## Current Status
 
 🚧 Active development
