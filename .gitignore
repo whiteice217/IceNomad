@@ -61,3 +61,20 @@ fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
 .DS_Store
+
+# Reticulum / NomadNet private data
+.reticulum/
+.nomadnetwork/
+
+# Cryptographic identities and keys
+*.identity
+*.key
+*.private
+*.pem
+
+# Environment/config secrets
+.env
+*.secret
+
+# Local development files
+*.local
