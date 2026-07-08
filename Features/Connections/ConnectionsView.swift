@@ -78,6 +78,7 @@ struct ConnectionsView: View {
     @State private var connections: [Connection] = ConnectionStorage.shared.load()
     @State private var addState: AddState = .idle
     @StateObject private var interfaceManager = InterfaceManager()
+    @State private var isRefreshing = false
     
     // TCP
     @State private var name = ""
@@ -103,7 +104,6 @@ struct ConnectionsView: View {
                         Button {
                             addState = .choosingType
                         } label: {
-                            
                             Image(systemName: "plus.circle.fill")
                                 .font(.system(size: 60))
                         }
@@ -135,92 +135,55 @@ struct ConnectionsView: View {
                                 
                             case .tcpClient:
                                 
-                                HStack(spacing: 4) {
-                                    Image(systemName: "network")
-                                    Text("TCP Client")
+                                VStack(alignment: .leading, spacing: 6) {
+                                    
+                                    Text("Host: \(conn.address)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    
+                                    Text("Port: \(conn.port)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "network")
+                                        Text("TCP Client")
+                                    }
+                                    .font(.caption)
+                                    .foregroundStyle(.blue)
                                 }
-                                .font(.caption)
-                                .foregroundStyle(.blue)
-                                
                                 
                             case .rNode:
                                 
                                 if let rnode = conn.rnodeConfig {
                                     
-                                    VStack(spacing: 4) {
+                                    VStack(alignment: .leading) {
                                         
-                                        HStack {
-                                            Text("GHz")
-                                                .frame(width: 50)
-                                            
-                                            Text("MHz")
-                                                .frame(width: 50)
-                                            
-                                            Text("KHz")
-                                                .frame(width: 50)
-                                            
-                                            Text("Hz")
-                                                .frame(width: 50)
+                                        Text("Frequency: \(rnode.frequencyHzString)")
+                                        Text("Bandwidth: \(rnode.bandwidth)")
+                                        Text("Power: \(rnode.transmitPower)")
+                                        
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "wifi")
+                                            Text("RNode")
                                         }
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        
-                                        
-                                        HStack {
-                                            
-                                            Text(String(format: "%03d", Int(rnode.freqGHz) ?? 0))
-                                                .frame(width: 50)
-                                            
-                                            Text(String(format: "%03d", Int(rnode.freqMHz) ?? 0))
-                                                .frame(width: 50)
-                                            
-                                            Text(String(format: "%03d", Int(rnode.freqKHz) ?? 0))
-                                                .frame(width: 50)
-                                            
-                                            Text(String(format: "%03d", Int(rnode.freqHz) ?? 0))
-                                                .frame(width: 50)
-                                        }
-                                        .font(.system(.body, design: .monospaced))
+                                        .foregroundStyle(.blue)
                                     }
-                                    
-                                    
-                                    Divider()
-                                    
-                                    
-                                    Text("Bandwidth: \(rnode.bandwidth)")
-                                    Text("Transmit Power: \(rnode.transmitPower)")
-                                    Text("Spread: \(rnode.spreadingFactor)")
-                                    Text("Code: \(rnode.codingRate)")
-                                    
-                                    
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "wifi")
-                                        Text("RNode")
-                                    }
-                                    .font(.caption)
-                                    .foregroundStyle(.blue)
                                 }
                             }
                         }
-                        
                         .swipeActions(edge: .trailing) {
                             
                             Button(role: .destructive) {
-                                
                                 deleteConnection(conn)
-                                
                             } label: {
-                                
                                 Label("Delete", systemImage: "trash")
                             }
                             
-                            
                             Button {
-                                
                                 editConnection(conn)
-                                
                             } label: {
-                                
                                 Label("Edit", systemImage: "pencil")
                             }
                             .tint(.blue)
@@ -230,40 +193,59 @@ struct ConnectionsView: View {
                     
                     
                     Button {
-                        
                         addState = .choosingType
-                        
                     } label: {
-                        
                         HStack {
                             Image(systemName: "plus")
                             Text("Add Connection")
                         }
                         .padding(.horizontal, 20)
-                        
                     }
                     .buttonStyle(.borderedProminent)
                     .padding(.bottom)
-                }
-                
-                if addState != .idle {
-                    Divider()
                     
-                    addFlowView
+                    
+                    if addState != .idle {
+                        Divider()
+                        addFlowView
+                    }
                 }
             }
             .navigationTitle("Connections")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        
+                        isRefreshing = true
+                        
+                        interfaceManager.restartAll()
+                        
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            isRefreshing = false
+                        }
+                        
+                    } label: {
+                        
+                        Image(systemName: "arrow.clockwise")
+                            .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                            .animation(
+                                isRefreshing ?
+                                .linear(duration: 1)
+                                .repeatForever(autoreverses: false)
+                                : .default,
+                                value: isRefreshing
+                            )
+                    }
+                }
+            }
         }
-        
         .onAppear {
             
             interfaceManager.loadInterfaces()
-            
             interfaceManager.startAll()
-            
         }
     }
-    // MARK: - FLOW
+// MARK: - FLOW
     
     @ViewBuilder
     var addFlowView: some View {

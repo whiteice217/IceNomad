@@ -9,18 +9,14 @@ import Network
 
 class TCPClient: ReticulumInterface {
 
-
     let name: String
     let address: String
     let port: String
 
-
     private(set) var isConnected: Bool = false
-
-
     private var connection: NWConnection?
-    
     var onStatusChanged: ((Bool) -> Void)?
+    var onReceive: ((Data) -> Void)?
 
 
     init(name: String,

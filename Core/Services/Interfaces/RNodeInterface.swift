@@ -17,8 +17,8 @@ class RNodeInterface: ReticulumInterface {
 
 
     private(set) var isConnected: Bool = false
-
-
+    
+    var onReceive: ((Data) -> Void)?
 
     init(config: RNodeConfig) {
 
