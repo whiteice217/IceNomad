@@ -7,10 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		933DCB272FFEF808008B63E2 /* index.html in Sources */ = {isa = PBXBuildFile; fileRef = 933DCB262FFEF805008B63E2 /* index.html */; };
 		93467C252FFED73900D00565 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 93467C242FFED73100D00565 /* README.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		933DCB262FFEF805008B63E2 /* index.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = index.html; sourceTree = "<group>"; };
 		93467C242FFED73100D00565 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		937BAF9C2FFC16950007197C /* IceNomad.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = IceNomad.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -42,6 +44,7 @@
 		937BAF932FFC16940007197C = {
 			isa = PBXGroup;
 			children = (
+				933DCB262FFEF805008B63E2 /* index.html */,
 				93467C262FFED76900D00565 /* Images */,
 				93467C242FFED73100D00565 /* README.md */,
 				937BAF9E2FFC16950007197C /* IceNomad */,
@@ -133,6 +136,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				933DCB272FFEF808008B63E2 /* index.html in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
