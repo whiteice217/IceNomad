@@ -4,42 +4,39 @@
 //
 //  Created by Bryan Stern on 7/6/26.
 //
-
 import SwiftUI
+
 
 @main
 struct IceNomadApp: App {
 
-    @State private var showSplash = true
+    @StateObject private var startup = StartupManager()
 
-    init() {
-        ReticulumManager.shared.start()
-    }
 
     var body: some Scene {
 
         WindowGroup {
 
-            if showSplash {
+            Group {
 
-                SplashView()
-                    .transition(.opacity)
-                    .onAppear {
+                if startup.finished {
 
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) {
+                    ContentView()
 
-                            withAnimation(.easeInOut(duration: 0.5)) {
-                                showSplash = false
-                            }
+                } else {
 
-                        }
-                    }
+                    SplashView(startup: startup)
+                        .transition(.opacity)
 
-            } else {
-
-                ContentView()
+                }
 
             }
+            .onAppear {
+
+                startup.begin()
+
+            }
+
         }
     }
 }
