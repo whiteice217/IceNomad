@@ -1,6 +1,7 @@
 {
   "images" : [
     {
+      "filename" : "image.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -12,6 +13,7 @@
           "value" : "dark"
         }
       ],
+      "filename" : "IceNomadDark.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
