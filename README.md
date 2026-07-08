@@ -1,6 +1,6 @@
 # 🐧 IceNomad
 
-![IceNomad Logo](Images/IceNomad.png)
+![IceNomad Logo](Images/WanderingPenguin.png)
 
 A penguin-powered Reticulum networking client for iOS.
 
@@ -20,8 +20,9 @@ encrypted mesh communication using Reticulum, LXMF, LoRa, and remote nodes.
 ## Screenshots
 
 <p align="center">
-<img src="Images/splash.png" width="250">
-<img src="Images/connections.png" width="250">
+<img src="Images/Splash Screen Preview.jpeg" width="250">
+<img src="Images/Connections Preview TCP Client.jpeg" width="250">
+<img src="Images/Connections Preview RNode.jpeg" width="250">
 </p>
 
 
