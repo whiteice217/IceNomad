@@ -16,9 +16,16 @@ class RNodeInterface: ReticulumInterface {
     let config: RNodeConfig
 
 
-    private(set) var isConnected: Bool = false
+    var isConnected: Bool = false
     
+    var bytesReceived: Int=0
+    
+    var bytesSent: Int=0
+
     var onReceive: ((Data) -> Void)?
+
+    var onStatusChanged: ((Bool) -> Void)?
+
 
     init(config: RNodeConfig) {
 
@@ -37,6 +44,7 @@ class RNodeInterface: ReticulumInterface {
 
 
         isConnected = true
+        onStatusChanged?(true)
     }
 
 
@@ -46,6 +54,7 @@ class RNodeInterface: ReticulumInterface {
         print("Stopping RNode")
 
         isConnected = false
+        onStatusChanged?(false)
     }
 
 

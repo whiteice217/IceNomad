@@ -13,12 +13,16 @@ protocol ReticulumInterface {
     // Interface name shown in the app
     var name: String { get }
 
-    // Current connection status
+    // Current interface state
     var isConnected: Bool { get }
 
 
+    // Traffic statistics
+    var bytesReceived: Int { get }
+    var bytesSent: Int { get }
+
+
     // Called when raw Reticulum data is received
-    // Optional because not every interface may need a listener immediately
     var onReceive: ((Data) -> Void)? { get set }
 
 
@@ -30,7 +34,7 @@ protocol ReticulumInterface {
     func stop()
 
 
-    // Send raw data
+    // Send raw Reticulum data
     func send(data: Data)
 
 }

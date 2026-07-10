@@ -2,32 +2,36 @@
 //  InterfaceManager.swift
 //  IceNomad
 //
-//  Created by Bryan Stern on 7/6/26.
-//
 
 import Foundation
 import Combine
 
+
 class InterfaceManager: ObservableObject {
     
+    private let packetParser = PacketParser()
+    
+    
     @Published private(set) var interfaces: [ReticulumInterface] = []
+    
     @Published var connectionStates: [String: Bool] = [:]
     
     @Published var receivedPacketCount: Int = 0
     
     
-    // MARK: - Load Interfaces
     
     func loadInterfaces() {
         
-        // Remove existing interfaces
         interfaces.removeAll()
+        
+        print("Loading interfaces...")
         
         
         let connections = ConnectionStorage.shared.load()
         
         
         for connection in connections {
+            
             
             switch connection.type {
                 
@@ -41,7 +45,6 @@ class InterfaceManager: ObservableObject {
                 )
                 
                 
-                // Receive TCP packets
                 tcp.onReceive = { [weak self] data in
                     
                     DispatchQueue.main.async {
@@ -49,32 +52,31 @@ class InterfaceManager: ObservableObject {
                         self?.receivedPacketCount += 1
                         
                         print(
-                            "TCP received:",
+                            "📥 InterfaceManager received:",
                             data.count,
                             "bytes"
                         )
                         
-                        print(data as NSData)
+                        
+                        self?.packetParser.receive(data)
                     }
                 }
                 
                 
-                tcp.onStatusChanged = { [weak self, weak tcp] connected in
+                tcp.onStatusChanged = { [weak self] connected in
                     
                     DispatchQueue.main.async {
                         
-                        if let name = tcp?.name {
-                            
-                            self?.connectionStates[name] = connected
-                            
-                            print(
-                                name,
-                                "status changed:",
-                                connected
-                            )
-                        }
+                        self?.connectionStates[connection.name] = connected
+                        
+                        print(
+                            connected ?
+                            "🟢 \(connection.name) online" :
+                                "🔴 \(connection.name) offline"
+                        )
                     }
                 }
+                
                 
                 interfaces.append(tcp)
                 
@@ -84,23 +86,19 @@ class InterfaceManager: ObservableObject {
                 
                 if let config = connection.rnodeConfig {
                     
+                    
                     let rnode = RNodeInterface(
                         config: config
                     )
                     
                     
-                    // Receive RNode packets
                     rnode.onReceive = { [weak self] data in
                         
                         DispatchQueue.main.async {
                             
                             self?.receivedPacketCount += 1
                             
-                            print(
-                                "RNode received:",
-                                data.count,
-                                "bytes"
-                            )
+                            self?.packetParser.receive(data)
                         }
                     }
                     
@@ -111,55 +109,42 @@ class InterfaceManager: ObservableObject {
         }
         
         
-        print("Loaded interfaces:", interfaces.count)
+        print(
+            "Loaded interfaces:",
+            interfaces.count
+        )
     }
     
     
-    
-    // MARK: - Start Interfaces
     
     func startAll() {
         
         for interface in interfaces {
             
-            print("Starting interface:", interface.name)
+            print(
+                "Starting:",
+                interface.name
+            )
             
             interface.start()
-            
-            
-            print(
-                interface.name,
-                "connected:",
-                interface.isConnected
-            )
         }
     }
     
     
-    // MARK: - Stop Interfaces
-
+    
     func stopAll() {
-
-        print("Stopping all interfaces...")
         
         for interface in interfaces {
-
-            print("Stopping interface:", interface.name)
-
-            interface.stop()
             
-            print("Finished stopping:", interface.name)
+            interface.stop()
         }
-        
-        print("Finished stopping all interfaces")
     }
-
 
     // MARK: - Restart Interfaces
 
     func restartAll() {
 
-        print("Restarting interfaces")
+        print("Restarting interfaces...")
 
         stopAll()
 

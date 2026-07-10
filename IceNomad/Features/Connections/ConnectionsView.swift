@@ -95,17 +95,24 @@ struct ConnectionsView: View {
             VStack {
                 
                 if connections.isEmpty {
-                    
+
                     VStack(spacing: 16) {
-                        
+
                         Text("No Connections")
                             .font(.headline)
-                        
+
+
                         Button {
                             addState = .choosingType
                         } label: {
                             Image(systemName: "plus.circle.fill")
                                 .font(.system(size: 60))
+                        }
+
+
+                        if addState != .idle {
+                            Divider()
+                            addFlowView
                         }
                     }
                     

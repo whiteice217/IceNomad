@@ -2,6 +2,8 @@
 //  TCPClient.swift
 //  IceNomad
 //
+//  Created by Bryan Stern on 7/8/26.
+//
 
 import Foundation
 import Network
@@ -9,19 +11,31 @@ import Network
 
 class TCPClient: ReticulumInterface {
 
+
     let name: String
     let address: String
     let port: String
 
-    private(set) var isConnected: Bool = false
+
+    var isConnected: Bool = false
+
+    var bytesReceived: Int = 0
+    var bytesSent: Int = 0
+
+
     private var connection: NWConnection?
-    var onStatusChanged: ((Bool) -> Void)?
+
+
     var onReceive: ((Data) -> Void)?
 
+    var onStatusChanged: ((Bool) -> Void)?
 
-    init(name: String,
-         address: String,
-         port: String) {
+
+    init(
+        name: String,
+        address: String,
+        port: String
+    ) {
 
         self.name = name
         self.address = address
@@ -53,47 +67,48 @@ class TCPClient: ReticulumInterface {
 
         connection?.stateUpdateHandler = { [weak self] state in
 
+            guard let self else {
+                return
+            }
+
+
             switch state {
+
 
             case .ready:
 
-                print("TCP connection established")
+                print("🟢 TCP connected")
 
-                self?.isConnected = true
-                self?.onStatusChanged?(true)
-                
+                self.isConnected = true
+
+                self.receiveLoop()
+
+
             case .failed(let error):
 
-                print("TCP connection failed:")
+                print("🔴 TCP failed:")
                 print(error)
 
-                self?.isConnected = false
-                self?.onStatusChanged?(false)
-                
-            case .waiting(let error):
-
-                print("TCP waiting:")
-                print(error)
+                self.isConnected = false
 
 
             case .cancelled:
 
-                print("TCP cancelled")
+                print("🔴 TCP cancelled")
 
-                self?.isConnected = false
-                self?.onStatusChanged?(false)
-                
+                self.isConnected = false
+
+
             default:
+
                 break
             }
-
         }
 
 
         connection?.start(
             queue: .global()
         )
-
     }
 
 
@@ -103,6 +118,7 @@ class TCPClient: ReticulumInterface {
         print("Stopping TCP Client")
 
         connection?.cancel()
+        connection = nil
 
         isConnected = false
     }
@@ -113,9 +129,12 @@ class TCPClient: ReticulumInterface {
 
         guard let connection else {
 
-            print("No TCP connection")
+            print("TCP not available")
             return
         }
+
+
+        bytesSent += data.count
 
 
         connection.send(
@@ -130,13 +149,61 @@ class TCPClient: ReticulumInterface {
                 }
                 else {
 
-                    print("TCP data sent:",
-                          data.count,
-                          "bytes")
-
+                    print(
+                        "📤 TCP sent:",
+                        data.count,
+                        "bytes"
+                    )
                 }
             }
         )
     }
 
+
+
+
+    private func receiveLoop() {
+
+        connection?.receive(
+            minimumIncompleteLength: 1,
+            maximumLength: 65536
+        ) { [weak self] data, _, complete, error in
+
+
+            guard let self else {
+                return
+            }
+
+
+            if let data, !data.isEmpty {
+
+                self.bytesReceived += data.count
+
+
+                print(
+                    "📥 TCP received:",
+                    data.count,
+                    "bytes"
+                )
+
+
+                self.onReceive?(data)
+            }
+
+
+            if let error {
+
+                print("TCP receive error:")
+                print(error)
+
+                return
+            }
+
+
+            if !complete {
+
+                self.receiveLoop()
+            }
+        }
+    }
 }
