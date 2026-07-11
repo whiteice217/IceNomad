@@ -1,7 +1,7 @@
 # 🐧 IceNomad
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/icepenguin.png" width="250" alt="IceNomad Penguin">
+  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/WanderingPenguin.png" width="250" alt="IceNomad Penguin">
 </p>
 
 <p align="center">
