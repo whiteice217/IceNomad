@@ -47,11 +47,11 @@ IceNomad is currently under active development.
 - ✅ Native RNode configuration
 - ✅ Identity management
 - ✅ Live interface status
+- ✅ Peer discovery
+- ✅ Announce handling
+- 🚸 LXMF messaging
 - 🚧 Reticulum protocol integration
-- 🚧 LXMF messaging
 - 🚧 NomadNet browser
-- 🚧 Peer discovery
-- 🚧 Announce handling
 
 ---
 
