@@ -2,36 +2,61 @@
 //  ReticulumPacket.swift
 //  IceNomad
 //
-//  Created by Bryan Stern on 7/10/26.
-//
+
 import Foundation
 
 
 struct ReticulumPacket {
-    
+
+
     let frame: ReticulumFrame
-    
-    
-    var context: UInt8 {
-        frame.context ?? 0
+
+
+
+    init(frame: ReticulumFrame) {
+
+        self.frame = frame
     }
-    
-    
+
+
+
     var payload: Data {
-        frame.payload
+
+        return frame.payload
     }
-    
-    
+
+
+
     var isAnnounce: Bool {
-        frame.packetType == 0x01
+
+        return frame.packetType == "ANNOUNCE"
     }
-    
-    
-    var payloadString: String? {
-        
-        String(
-            data: payload,
-            encoding: .utf8
-        )
+
+
+
+    var packetType: String {
+
+        return frame.packetType
+    }
+
+
+
+    var destinationHash: Data? {
+
+        return frame.destinationHash
+    }
+
+
+
+    var sourceHash: Data? {
+
+        return frame.sourceHash
+    }
+
+
+
+    var context: UInt8? {
+
+        return frame.context
     }
 }

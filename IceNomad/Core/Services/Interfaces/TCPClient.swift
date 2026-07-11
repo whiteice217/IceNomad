@@ -80,6 +80,7 @@ class TCPClient: ReticulumInterface {
                 print("🟢 TCP connected")
 
                 self.isConnected = true
+                self.onStatusChanged?(true)
 
                 self.receiveLoop()
 
@@ -90,6 +91,7 @@ class TCPClient: ReticulumInterface {
                 print(error)
 
                 self.isConnected = false
+                self.onStatusChanged?(false)
 
 
             case .cancelled:
@@ -97,6 +99,7 @@ class TCPClient: ReticulumInterface {
                 print("🔴 TCP cancelled")
 
                 self.isConnected = false
+                self.onStatusChanged?(false)
 
 
             default:
@@ -121,6 +124,7 @@ class TCPClient: ReticulumInterface {
         connection = nil
 
         isConnected = false
+        onStatusChanged?(false)
     }
 
 

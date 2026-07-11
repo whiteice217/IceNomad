@@ -9,8 +9,10 @@ import Combine
 
 class InterfaceManager: ObservableObject {
     
-    private let packetParser = PacketParser()
     
+    // MARK: - Properties
+    
+    private let packetParser = PacketParser()
     
     @Published private(set) var interfaces: [ReticulumInterface] = []
     
@@ -20,21 +22,23 @@ class InterfaceManager: ObservableObject {
     
     
     
+    // MARK: - Load Interfaces
+    
     func loadInterfaces() {
         
         interfaces.removeAll()
         
         print("Loading interfaces...")
         
-        
         let connections = ConnectionStorage.shared.load()
         
         
         for connection in connections {
             
-            
             switch connection.type {
                 
+                
+            // MARK: TCP Client
                 
             case .tcpClient:
                 
@@ -51,13 +55,6 @@ class InterfaceManager: ObservableObject {
                         
                         self?.receivedPacketCount += 1
                         
-                        print(
-                            "📥 InterfaceManager received:",
-                            data.count,
-                            "bytes"
-                        )
-                        
-                        
                         self?.packetParser.receive(data)
                     }
                 }
@@ -71,8 +68,8 @@ class InterfaceManager: ObservableObject {
                         
                         print(
                             connected ?
-                            "🟢 \(connection.name) online" :
-                                "🔴 \(connection.name) offline"
+                            "🟢 \(connection.name) connected" :
+                            "🔴 \(connection.name) disconnected"
                         )
                     }
                 }
@@ -82,54 +79,52 @@ class InterfaceManager: ObservableObject {
                 
                 
                 
+            // MARK: RNode
+                
             case .rNode:
                 
-                if let config = connection.rnodeConfig {
-                    
-                    
-                    let rnode = RNodeInterface(
-                        config: config
-                    )
-                    
-                    
-                    rnode.onReceive = { [weak self] data in
-                        
-                        DispatchQueue.main.async {
-                            
-                            self?.receivedPacketCount += 1
-                            
-                            self?.packetParser.receive(data)
-                        }
-                    }
-                    
-                    
-                    interfaces.append(rnode)
+                guard let config = connection.rnodeConfig else {
+                    continue
                 }
+                
+                
+                let rnode = RNodeInterface(
+                    config: config
+                )
+                
+                
+                rnode.onReceive = { [weak self] data in
+                    
+                    DispatchQueue.main.async {
+                        
+                        self?.receivedPacketCount += 1
+                        
+                        self?.packetParser.receive(data)
+                    }
+                }
+                
+                
+                interfaces.append(rnode)
             }
         }
         
         
-        print(
-            "Loaded interfaces:",
-            interfaces.count
-        )
+        print("Loaded interfaces:", interfaces.count)
     }
     
     
+    
+    // MARK: - Interface Control
     
     func startAll() {
         
         for interface in interfaces {
             
-            print(
-                "Starting:",
-                interface.name
-            )
+            print("Starting:", interface.name)
             
             interface.start()
         }
     }
-    
     
     
     func stopAll() {
@@ -139,17 +134,19 @@ class InterfaceManager: ObservableObject {
             interface.stop()
         }
     }
-
-    // MARK: - Restart Interfaces
-
+    
+    
+    
+    // MARK: - Restart
+    
     func restartAll() {
-
+        
         print("Restarting interfaces...")
-
+        
         stopAll()
-
+        
         loadInterfaces()
-
+        
         startAll()
     }
 }
