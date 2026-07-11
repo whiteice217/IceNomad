@@ -92,7 +92,10 @@ struct ReticulumFrame {
         }
 
 
-        let type = headerByte & 0b00000111
+        // Packet type is only bits 0-1 of the header byte.
+        // (Bit 2 belongs to the destination type field next to it —
+        // masking with 0b111 would accidentally pull that bit in too.)
+        let type = headerByte & 0b00000011
 
 
         switch type {
@@ -107,7 +110,7 @@ struct ReticulumFrame {
             return "LINKREQUEST"
 
         case 3:
-            return "LINKPROOF"
+            return "PROOF"
 
         default:
             return "UNKNOWN \(type)"
@@ -116,18 +119,36 @@ struct ReticulumFrame {
 
 
 
+    /// Whether the context flag bit (bit 5) is set. For ANNOUNCE packets,
+    /// this indicates a ratchet public key is included in the payload.
+    var contextFlagSet: Bool {
+
+        guard let headerByte else {
+            return false
+        }
+
+        return (headerByte & 0b00100000) != 0
+    }
+
+
+
     // MARK: - Addresses
 
+    /// Present only when the header has two address fields (i.e. this
+    /// packet has already been forwarded by at least one transport node).
+    /// This is the hash of the node that relayed the packet to us — not
+    /// the announcer.
+    var transportId: Data? {
 
-    var destinationHash: Data? {
+        guard headerType == "2 addresses" else {
+            return nil
+        }
 
         let start = packetOffset + 2
-
 
         guard data.count >= start + 16 else {
             return nil
         }
-
 
         return Data(
             data[start..<start+16]
@@ -136,20 +157,21 @@ struct ReticulumFrame {
 
 
 
-    var sourceHash: Data? {
+    /// The actual destination hash of the packet. For a single-address
+    /// header this is the only address field; for a two-address header
+    /// (already-forwarded packet) it's the *second* field — the first
+    /// is the relaying transport node's ID, not the destination.
+    var destinationHash: Data? {
 
-        guard headerType == "2 addresses" else {
-            return nil
+        var start = packetOffset + 2
+
+        if headerType == "2 addresses" {
+            start += 16
         }
-
-
-        let start = packetOffset + 18
-
 
         guard data.count >= start + 16 else {
             return nil
         }
-
 
         return Data(
             data[start..<start+16]

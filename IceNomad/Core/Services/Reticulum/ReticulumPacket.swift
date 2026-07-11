@@ -48,9 +48,16 @@ struct ReticulumPacket {
 
 
 
-    var sourceHash: Data? {
+    var transportId: Data? {
 
-        return frame.sourceHash
+        return frame.transportId
+    }
+
+
+
+    var contextFlagSet: Bool {
+
+        return frame.contextFlagSet
     }
 
 

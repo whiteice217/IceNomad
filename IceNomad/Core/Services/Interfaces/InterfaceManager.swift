@@ -21,6 +21,20 @@ class InterfaceManager: ObservableObject {
     @Published var receivedPacketCount: Int = 0
     
     
+    // MARK: - Init
+    
+    init() {
+        
+        packetParser.onFrameReceived = { frame in
+            
+            DispatchQueue.main.async {
+                
+                PeerStore.shared.handle(frame: frame)
+            }
+        }
+    }
+    
+    
     
     // MARK: - Load Interfaces
     
