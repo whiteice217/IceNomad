@@ -21,10 +21,11 @@ encrypted mesh communication using Reticulum, LXMF, LoRa, and remote nodes.
 
 <p align="center">
 <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/SplashScreenPreview.jpeg" width="250">
-<img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/ConnectionsPreviewTCPClient.jpeg" width="250">
 <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/ConnectionsPreviewRNode.jpeg" width="250">
 </p>
-<img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/AnnouncementView.png" width="250">
+<img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/AnnouncementView.jpg" width="250">
+<img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/MessageView.jpg" width="250">
+</p>
 </p>
 
 ## Current Status
