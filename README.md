@@ -51,7 +51,7 @@ IceNomad is currently under active development.
 - ✅ Announce handling
 - 🚸 LXMF messaging
 - 🚧 Reticulum protocol integration
-- 🚧 NomadNet browser
+- 🚸 NomadNet browser
 
 ---
 
