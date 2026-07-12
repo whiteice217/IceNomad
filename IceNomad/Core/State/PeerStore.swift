@@ -23,6 +23,7 @@ struct Peer: Identifiable {
     var displayName: String?
     var lastSeen: Date
     var hopCount: UInt8?
+    let nameHash: Data
 }
 
 
@@ -74,7 +75,8 @@ final class PeerStore: ObservableObject {
                 destinationHashHex: hex,
                 displayName: announce.displayName,
                 lastSeen: now,
-                hopCount: hopCount
+                hopCount: hopCount,
+                nameHash: announce.nameHash
             )
 
             index[hex] = peers.count
