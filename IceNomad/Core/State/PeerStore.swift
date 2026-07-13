@@ -24,6 +24,7 @@ struct Peer: Identifiable {
     var lastSeen: Date
     var hopCount: UInt8?
     let nameHash: Data
+    let identityPublicKey: Data
 }
 
 
@@ -76,10 +77,41 @@ final class PeerStore: ObservableObject {
                 displayName: announce.displayName,
                 lastSeen: now,
                 hopCount: hopCount,
-                nameHash: announce.nameHash
+                nameHash: announce.nameHash,
+                identityPublicKey: announce.encryptionPublicKey + announce.signingPublicKey
             )
 
             index[hex] = peers.count
+            peers.append(peer)
+        }
+    }
+
+
+    /// Records/updates a peer learned directly from a decrypted message
+    /// envelope (not an announce) — so replying works even before
+    /// they've announced. Their name_hash is assumed to be IceNomad's
+    /// own shared aspect, since only a peer using the same app
+    /// convention could have messaged you in the first place.
+    func recordDirectContact(destinationHashHex: String, identityPublicKey: Data) {
+
+        let now = Date()
+
+        if let existingIndex = index[destinationHashHex] {
+
+            peers[existingIndex].lastSeen = now
+
+        } else {
+
+            let peer = Peer(
+                destinationHashHex: destinationHashHex,
+                displayName: nil,
+                lastSeen: now,
+                hopCount: nil,
+                nameHash: ReticulumDestination.nameHash,
+                identityPublicKey: identityPublicKey
+            )
+
+            index[destinationHashHex] = peers.count
             peers.append(peer)
         }
     }

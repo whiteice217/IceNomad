@@ -4,13 +4,13 @@
 //
 //  Local conversation storage, keyed by peer destination hash.
 //
-//  IMPORTANT: `send(text:to:)` is LOCAL-ONLY right now. It records the
-//  message and marks it "sent" so the messaging UI/UX can be built and
-//  tested end-to-end, but nothing is actually transmitted over the
-//  Reticulum network yet. Real delivery requires establishing an
-//  encrypted Link to the destination, which needs the crypto layer
-//  (Core/Services/Crypto — currently empty stub files) to be built out
-//  first. Wire real sending in here once that exists.
+//  send(text:to:) now actually transmits: it encrypts the message to
+//  the peer's known public key and sends a real DATA packet via
+//  InterfaceManager. This only works once you've heard from that peer
+//  at least once (an announce, or a prior message from them) — Reticulum
+//  has no way to encrypt to someone whose public key you don't have.
+//  If their key isn't known yet, the message is stored with status
+//  .failed instead of silently pretending to send.
 //
 
 import Foundation
@@ -57,23 +57,40 @@ final class MessageStore: ObservableObject {
 
     // MARK: - Sending / Receiving
 
-    /// See the LOCAL-ONLY note at the top of this file.
-    func send(text: String, to hex: String) {
+    /// Encrypts and sends a real message, if the peer's public key is
+    /// known. Otherwise records the message as .failed rather than
+    /// pretending it went out.
+    @discardableResult
+    func send(text: String, to hex: String) -> ChatMessage {
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmed.isEmpty else {
-            return
+            return ChatMessage(peerHashHex: hex, text: "", isOutgoing: true, status: .failed)
         }
+
+        guard let peer = PeerStore.shared.peers.first(where: { $0.destinationHashHex == hex }) else {
+
+            let message = ChatMessage(peerHashHex: hex, text: trimmed, isOutgoing: true, status: .failed)
+            append(message, for: hex)
+            return message
+        }
+
+        let succeeded = InterfaceManager.shared.sendMessage(
+            text: trimmed,
+            to: hex,
+            recipientPublicKey: peer.identityPublicKey
+        )
 
         let message = ChatMessage(
             peerHashHex: hex,
             text: trimmed,
             isOutgoing: true,
-            status: .sent
+            status: succeeded ? .sent : .failed
         )
 
         append(message, for: hex)
+        return message
     }
 
 

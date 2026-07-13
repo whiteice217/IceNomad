@@ -34,6 +34,13 @@ struct ReticulumPacket {
 
 
 
+    var isData: Bool {
+
+        return frame.packetType == "DATA"
+    }
+
+
+
     var packetType: String {
 
         return frame.packetType

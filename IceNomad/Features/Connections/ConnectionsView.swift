@@ -77,7 +77,7 @@ struct ConnectionsView: View {
     
     @State private var connections: [Connection] = ConnectionStorage.shared.load()
     @State private var addState: AddState = .idle
-    @StateObject private var interfaceManager = InterfaceManager()
+    @ObservedObject private var interfaceManager = InterfaceManager.shared
     @State private var isRefreshing = false
     
     // TCP
