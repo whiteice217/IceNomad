@@ -33,6 +33,12 @@ class InterfaceManager: ObservableObject {
 
     init() {
 
+        let myHash = ReticulumDestination.myDestinationHashHex
+        let myIdentityHash = IdentityStore.shared.myIdentity.hash.hexString
+
+        print("🆔 My identity hash:    \(myIdentityHash)")
+        print("🆔 My destination hash: \(myHash)")
+
         packetParser.onFrameReceived = { [weak self] frame in
 
             DispatchQueue.main.async {
@@ -49,6 +55,7 @@ class InterfaceManager: ObservableObject {
 
         if packet.isAnnounce {
 
+            debugLogIncomingAnnounce(packet)
             PeerStore.shared.handle(frame: frame)
             return
         }
@@ -61,16 +68,54 @@ class InterfaceManager: ObservableObject {
     }
 
 
+    /// Logs every parsed announce, and flags loudly if it's OUR OWN
+    /// announce coming back to us — the clearest possible proof that an
+    /// outbound announce actually reached the network and was
+    /// considered well-formed by whatever relayed it back.
+    private func debugLogIncomingAnnounce(_ packet: ReticulumPacket) {
+
+        guard let destinationHash = packet.destinationHash else {
+            print("📡 ANNOUNCE IN — but no destination hash could be parsed from it.")
+            return
+        }
+
+        let hex = destinationHash.hexString
+        let isMine = destinationHash == ReticulumDestination.myDestinationHash
+
+        guard let announce = AnnouncePacket(packet: packet) else {
+            print("📡 ANNOUNCE IN from \(hex) — but the payload didn't parse as a valid announce.")
+            return
+        }
+
+        let name = announce.displayName ?? "(unnamed)"
+
+        if isMine {
+            print("🔁 MY OWN ANNOUNCE CAME BACK — \(hex) as \"\(name)\". This confirms your announce reached the network and round-tripped successfully.")
+        } else {
+            print("📡 ANNOUNCE IN — \(hex) as \"\(name)\", \(packet.frame.hopCount.map { "\($0) hop(s)" } ?? "hop count unknown")")
+        }
+    }
+
+
     /// A DATA packet carries no sender address by design (Reticulum's
     /// "initiator anonymity") — only whether it's addressed to us. If it
     /// is, decrypt with our own identity and unpack the sender info
     /// IceNomad embeds inside the envelope (see MessageEnvelope.swift).
     private func handleDataPacket(_ packet: ReticulumPacket) {
 
-        guard let destinationHash = packet.destinationHash,
-              destinationHash == ReticulumDestination.myDestinationHash
-        else {
-            return // not addressed to us
+        guard let destinationHash = packet.destinationHash else {
+            print("📩 DATA IN — but no destination hash could be parsed from it.")
+            return
+        }
+
+        let hex = destinationHash.hexString
+        let mine = ReticulumDestination.myDestinationHashHex
+        let isMine = destinationHash == ReticulumDestination.myDestinationHash
+
+        print("📩 DATA IN — addressed to \(hex) (mine is \(mine)) — \(isMine ? "MATCH, attempting decrypt" : "not for me, ignoring")")
+
+        guard isMine else {
+            return
         }
 
         do {
@@ -78,9 +123,11 @@ class InterfaceManager: ObservableObject {
             let plaintext = try IdentityStore.shared.myIdentity.decrypt(packet.payload)
 
             guard let (senderHex, senderPublicKey, text) = MessageEnvelope.parse(plaintext) else {
-                print("⚠️ Received a message that failed envelope verification — dropped.")
+                print("🔒 Decrypted OK, but envelope verification failed (bad signature or malformed envelope) — dropped.")
                 return
             }
+
+            print("🔓 Decrypted message from \(senderHex): \"\(text)\"")
 
             PeerStore.shared.recordDirectContact(
                 destinationHashHex: senderHex,
@@ -90,7 +137,7 @@ class InterfaceManager: ObservableObject {
             MessageStore.shared.receive(text: text, from: senderHex)
 
         } catch {
-            print("⚠️ Failed to decrypt an incoming DATA packet: \(error)")
+            print("🔒 Decrypt FAILED (HMAC/AES error, meaning it likely wasn't actually encrypted to us, or is corrupt): \(error)")
         }
     }
 
@@ -235,9 +282,19 @@ class InterfaceManager: ObservableObject {
     // MARK: - Sending
 
     /// Sends raw (already HDLC-framed) bytes out every connected interface.
+    /// Logs how many interfaces were actually eligible to send on, since
+    /// "send() was called" and "bytes actually went somewhere" are two
+    /// different things if nothing is connected.
     func send(_ framedData: Data) {
 
-        for interface in interfaces where interface.isConnected {
+        let connectedInterfaces = interfaces.filter { $0.isConnected }
+
+        guard !connectedInterfaces.isEmpty else {
+            print("⚠️ send() called with \(framedData.count) bytes, but no interfaces are connected — nothing was sent.")
+            return
+        }
+
+        for interface in connectedInterfaces {
             interface.send(data: framedData)
         }
     }
@@ -251,14 +308,15 @@ class InterfaceManager: ObservableObject {
         let appData = Data(name.utf8)
 
         guard let rawPacket = PacketBuilder.buildAnnouncePacket(appData: appData) else {
-            print("⚠️ Could not build announce packet.")
+            print("⚠️ Could not build announce packet — this means IdentityStore has no private key, which shouldn't happen.")
             return
         }
 
         let framed = PacketBuilder.hdlcFrame(rawPacket)
-        send(framed)
 
-        print("📣 Sent announce as \"\(name)\"")
+        print("🔔 ANNOUNCE OUT — as \"\(name)\", destination \(ReticulumDestination.myDestinationHashHex), \(rawPacket.count) raw bytes / \(framed.count) framed bytes")
+
+        send(framed)
     }
 
 
@@ -267,14 +325,17 @@ class InterfaceManager: ObservableObject {
     func sendMessage(text: String, to destinationHashHex: String, recipientPublicKey: Data) -> Bool {
 
         guard let recipient = ReticulumIdentity(publicKeyBytes: recipientPublicKey) else {
+            print("✉️ MESSAGE OUT to \(destinationHashHex) FAILED — recipient public key (\(recipientPublicKey.count) bytes) is invalid.")
             return false
         }
 
         guard let envelope = MessageEnvelope.build(text: text) else {
+            print("✉️ MESSAGE OUT to \(destinationHashHex) FAILED — could not build/sign the envelope.")
             return false
         }
 
         guard let destinationHash = Data(hexString: destinationHashHex) else {
+            print("✉️ MESSAGE OUT to \(destinationHashHex) FAILED — that doesn't look like a valid hex destination hash.")
             return false
         }
 
@@ -284,11 +345,13 @@ class InterfaceManager: ObservableObject {
             let rawPacket = PacketBuilder.buildDataPacket(destinationHash: destinationHash, ciphertext: ciphertext)
             let framed = PacketBuilder.hdlcFrame(rawPacket)
 
+            print("✉️ MESSAGE OUT to \(destinationHashHex) — \(rawPacket.count) raw bytes / \(framed.count) framed bytes")
+
             send(framed)
             return true
 
         } catch {
-            print("⚠️ Failed to encrypt/send message: \(error)")
+            print("✉️ MESSAGE OUT to \(destinationHashHex) FAILED — encryption threw: \(error)")
             return false
         }
     }
@@ -318,5 +381,10 @@ extension Data {
         }
 
         self = data
+    }
+
+    /// Lowercase hex string, for debug logging.
+    var hexString: String {
+        map { String(format: "%02x", $0) }.joined()
     }
 }
