@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		93467C252FFED73900D00565 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 93467C242FFED73100D00565 /* README.md */; };
+		93D5B6BF30071F3900E724D9 /* ReticulumKit in Frameworks */ = {isa = PBXBuildFile; productRef = 93D5B6BE30071F3900E724D9 /* ReticulumKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +34,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				93D5B6BF30071F3900E724D9 /* ReticulumKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +80,7 @@
 			);
 			name = IceNomad;
 			packageProductDependencies = (
+				93D5B6BE30071F3900E724D9 /* ReticulumKit */,
 			);
 			productName = IceNomad;
 			productReference = 937BAF9C2FFC16950007197C /* IceNomad.app */;
@@ -107,6 +110,9 @@
 			);
 			mainGroup = 937BAF932FFC16940007197C;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				93D5B6BD30071F3900E724D9 /* XCRemoteSwiftPackageReference "ReticulumKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 937BAF9D2FFC16950007197C /* Products */;
 			projectDirPath = "";
@@ -344,6 +350,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		93D5B6BD30071F3900E724D9 /* XCRemoteSwiftPackageReference "ReticulumKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/J-Krush/ReticulumKit.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		93D5B6BE30071F3900E724D9 /* ReticulumKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 93D5B6BD30071F3900E724D9 /* XCRemoteSwiftPackageReference "ReticulumKit" */;
+			productName = ReticulumKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 937BAF942FFC16940007197C /* Project object */;
 }

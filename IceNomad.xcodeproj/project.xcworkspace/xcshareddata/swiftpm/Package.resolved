@@ -1,0 +1,33 @@
+{
+  "originHash" : "b3ecf2d81788d82412d8aa2588fc4b03078ca61ceef1a246ccb7eb68d88c8e37",
+  "pins" : [
+    {
+      "identity" : "msgpack-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/fumoboy007/msgpack-swift.git",
+      "state" : {
+        "revision" : "fe3101819f4f82b086da5279a9df81f6754798e9",
+        "version" : "2.0.6"
+      }
+    },
+    {
+      "identity" : "reticulumkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/J-Krush/ReticulumKit.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "d05342cd67050f624621d4a9fc23f5aceeac25c1"
+      }
+    },
+    {
+      "identity" : "swift-log",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-log.git",
+      "state" : {
+        "revision" : "a878e7f8f46cfc0e1125e565b5c08e7d5272dc9a",
+        "version" : "1.14.0"
+      }
+    }
+  ],
+  "version" : 3
+}
