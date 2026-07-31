@@ -9,6 +9,10 @@
   Explore decentralized, encrypted communication using Reticulum, LXMF, LoRa, and remote transport nodes.
 </p>
 
+<p align="center">
+  🌐 <a href="https://icenomad.net">icenomad.net</a> &nbsp;·&nbsp; 📧 <a href="mailto:wanderingpenguin@icenomad.net">wanderingpenguin@icenomad.net</a>
+</p>
+
 ---
 
 ## ✨ Features
@@ -120,6 +124,44 @@ Just wanderers connected across the ice.
 IceNomad is an open-source hobby project, and contributions, bug reports, and feature suggestions are always welcome.
 
 If you'd like to help, feel free to open an issue or submit a pull request.
+
+---
+
+## 📬 Contact & Support
+
+- 🌐 Website: [icenomad.net](https://icenomad.net)
+- 📧 Support/contact: [wanderingpenguin@icenomad.net](mailto:wanderingpenguin@icenomad.net)
+- 🐛 Found a bug? [Open an issue on GitHub](https://github.com/whiteice217/IceNomad/issues)
+
+---
+
+## 💝 Support IceNomad
+
+Thanks for being a penguin in this wide, cold wasteland. With help like yours, us penguins can keep our invisible, silent, yet living communication going — over the ether, or whatever you want to call it.
+
+A bit about me: I'm a hard-working nursing student with a love of tech from long before my medical journey began. I build and maintain IceNomad out of my own wallet, for penguins like you.
+
+If you'd like to help keep this project going, any support is deeply appreciated — every bit goes straight back into development and keeping the lights on. No pressure at all; just having you here using it means a lot.
+
+- 💳 [Donate via PayPal](https://www.paypal.com/donate/?hosted_button_id=MX56K67Y4PGPS)
+
+**₿ Bitcoin (native):** `3PC2aHq4m71c5nsCytGd37nZbSAWbuHrEM`
+
+<p>
+  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/DonateQR_Bitcoin.png" width="160" alt="Bitcoin donation QR code">
+</p>
+
+**🪙 Crypto — Base network only** (ETH, USDC, or BTC via cbBTC): `0xb708a0A34572Be9C7845E3Caa26733C3F1A2d914`
+
+<p>
+  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/DonateQR_Base.png" width="160" alt="Base network donation QR code">
+</p>
+
+⚠️ Only send assets on the **Base** network to that address — anything sent on another network (Ethereum mainnet, native Bitcoin, etc.) may be lost.
+
+Please spread the love, be kind to one another, and whenever you can — share a fish. 🐟
+
+— Wandering Penguin ([@whiteice217](https://github.com/whiteice217))
 
 ---
 

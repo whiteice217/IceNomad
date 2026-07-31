@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		93467C252FFED73900D00565 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 93467C242FFED73100D00565 /* README.md */; };
-		93D5B6BF30071F3900E724D9 /* ReticulumKit in Frameworks */ = {isa = PBXBuildFile; productRef = 93D5B6BE30071F3900E724D9 /* ReticulumKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,7 +33,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				93D5B6BF30071F3900E724D9 /* ReticulumKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -79,9 +77,6 @@
 				937BAF9E2FFC16950007197C /* IceNomad */,
 			);
 			name = IceNomad;
-			packageProductDependencies = (
-				93D5B6BE30071F3900E724D9 /* ReticulumKit */,
-			);
 			productName = IceNomad;
 			productReference = 937BAF9C2FFC16950007197C /* IceNomad.app */;
 			productType = "com.apple.product-type.application";
@@ -110,9 +105,6 @@
 			);
 			mainGroup = 937BAF932FFC16940007197C;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				93D5B6BD30071F3900E724D9 /* XCRemoteSwiftPackageReference "ReticulumKit" */,
-			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 937BAF9D2FFC16950007197C /* Products */;
 			projectDirPath = "";
@@ -275,6 +267,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "IceNomad uses Bluetooth to connect to RNode LoRa radios for Reticulum networking.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "IceNomad uses the camera to scan QR codes for LXMF addresses and NomadNet pages.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -288,6 +281,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.saltycapn.icenomad.IceNomad;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -308,6 +303,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "IceNomad uses Bluetooth to connect to RNode LoRa radios for Reticulum networking.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "IceNomad uses the camera to scan QR codes for LXMF addresses and NomadNet pages.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -321,6 +317,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.saltycapn.icenomad.IceNomad;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -352,25 +350,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		93D5B6BD30071F3900E724D9 /* XCRemoteSwiftPackageReference "ReticulumKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/J-Krush/ReticulumKit.git";
-			requirement = {
-				branch = main;
-				kind = branch;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		93D5B6BE30071F3900E724D9 /* ReticulumKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 93D5B6BD30071F3900E724D9 /* XCRemoteSwiftPackageReference "ReticulumKit" */;
-			productName = ReticulumKit;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 937BAF942FFC16940007197C /* Project object */;
 }

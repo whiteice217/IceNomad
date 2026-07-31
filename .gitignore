@@ -78,3 +78,5 @@ fastlane/test_output
 
 # Local development files
 *.local
+CLAUDE.md
+.DS_Store
