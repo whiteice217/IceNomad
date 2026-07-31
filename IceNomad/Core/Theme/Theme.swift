@@ -169,6 +169,34 @@ extension Theme {
     }
 
 
+    /// Default per-level heading fg/bg band, matching real NomadNet's
+    /// STYLES_DARK/STYLES_LIGHT tables exactly (same 3-digit hex codes,
+    /// just re-expressed as adaptive Colors instead of a fixed palette
+    /// entry) — a page's own inline color codes within a heading line
+    /// still override these, same as the real client (this is only the
+    /// *starting* fg/bg state MicronParser seeds before parsing a
+    /// heading's content).
+    private static let micronHeadingForegroundHex: [(dark: String, light: String)] = [
+        ("222", "000"), ("111", "111"), ("000", "222"),
+    ]
+
+    private static let micronHeadingBackgroundHex: [(dark: String, light: String)] = [
+        ("bbb", "777"), ("999", "aaa"), ("777", "ccc"),
+    ]
+
+    static func micronHeadingForeground(level: Int) -> Color {
+        adaptiveMicronHex(micronHeadingForegroundHex[min(max(level, 1), 3) - 1])
+    }
+
+    static func micronHeadingBackground(level: Int) -> Color {
+        adaptiveMicronHex(micronHeadingBackgroundHex[min(max(level, 1), 3) - 1])
+    }
+
+    private static func adaptiveMicronHex(_ hex: (dark: String, light: String)) -> Color {
+        adaptive(light: UIColor(Color(micronHex3: hex.light)), dark: UIColor(Color(micronHex3: hex.dark)))
+    }
+
+
     /// NomadNet pages specify their own text colors (`` `Fxxx `` hex
     /// codes), authored with no idea what background they'll render on.
     /// A page author's light gray, perfectly legible on the white

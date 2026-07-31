@@ -29,8 +29,49 @@ struct MicronTextView: UIViewRepresentable {
     let alignment: TextAlignment
     let fontSize: CGFloat
     let isDarkMode: Bool
+    /// The Browser's current viewport width, used only for wrapping
+    /// ordinary prose lines (see `isFixedWidthArt`) — art lines ignore
+    /// this and always report their natural size.
+    let availableWidth: CGFloat
     var forceBold: Bool = false
+    /// Bypasses the isFixedWidthArt density heuristic entirely — used for
+    /// divider fill rows (see MicronView), which are built from whatever
+    /// single glyph a page specifies and may not fall in the box-drawing
+    /// Unicode range the heuristic looks for (e.g. a plain "■" or "*"),
+    /// but still need art's unwrapped/natural-size treatment rather than
+    /// being word-wrapped as if they were prose.
+    var forceUnwrapped: Bool = false
     var onLinkTap: ((MicronLink) -> Void)?
+
+    /// Real .mu pages mix two very different kinds of content: ASCII-art
+    /// banners built almost entirely from legacy box-drawing/block-element
+    /// characters (═ ║ ╔ ╗ ╚ ╝ █, U+2500–259F), which only hold their
+    /// shape unwrapped, and ordinary prose, which needs to wrap to the
+    /// screen width like any normal text or every paragraph becomes one
+    /// giant line requiring horizontal scrolling just to read a sentence.
+    /// A line built mostly from these characters is unambiguously art —
+    /// real prose essentially never contains them — so checking for their
+    /// presence at all is a reliable, simple way to tell the two apart
+    /// without needing the page to mark it explicitly.
+    private var isFixedWidthArt: Bool {
+        forceUnwrapped || Self.isFixedWidthArt(spans)
+    }
+
+    /// Shared with MicronView, which needs the same classification per
+    /// line to decide spacing between rows (art rows sit flush against
+    /// each other to hold their banner shape; prose keeps normal
+    /// paragraph spacing) without duplicating the heuristic.
+    static func isFixedWidthArt(_ spans: [MicronSpan]) -> Bool {
+
+        let text = spans.map(\.text).joined()
+
+        guard !text.isEmpty else {
+            return false
+        }
+
+        let artCharacters = text.unicodeScalars.filter { (0x2500...0x259F).contains($0.value) }
+        return Double(artCharacters.count) / Double(text.unicodeScalars.count) > 0.15
+    }
 
     func makeUIView(context: Context) -> UITextView {
 
@@ -41,8 +82,19 @@ struct MicronTextView: UIViewRepresentable {
         textView.backgroundColor = .clear
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
-        textView.textContainer.lineBreakMode = .byClipping
         textView.delegate = context.coordinator
+
+        // Real terminal-grid ASCII art (box-drawing/block characters
+        // stacked to form banners) needs rows packed at exactly the
+        // font's cell height with no extra breathing room — UIKit's
+        // default line-height calculation includes the font's "leading"
+        // value on top of ascent+descent, which is normally desirable
+        // typographically but pulls vertically-connecting glyphs (║, for
+        // instance) apart by a hairline between rows, showing up as a
+        // seam/tear running through the art. Disabling it packs lines
+        // tight, matching how a real terminal renders the same content.
+        textView.layoutManager.usesFontLeading = false
+
         return textView
     }
 
@@ -94,19 +146,28 @@ struct MicronTextView: UIViewRepresentable {
         textView.linkTextAttributes = [.foregroundColor: UIColor(Theme.accent)]
 
         textView.attributedText = attributed
+        textView.textContainer.lineBreakMode = isFixedWidthArt ? .byClipping : .byWordWrapping
+        textView.textContainer.size = isFixedWidthArt
+            ? CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            : CGSize(width: availableWidth, height: .greatestFiniteMagnitude)
         context.coordinator.links = links
         context.coordinator.onLinkTap = onLinkTap
     }
 
-    /// Deliberately ignores the proposed width and reports the text's
-    /// natural, unwrapped size. Real Micron pages are authored against a
-    /// fixed-width terminal grid — ASCII-art banners in particular only
-    /// hold their shape unwrapped. Reflowing them to fit a narrow phone
-    /// screen breaks them outright, so instead the page renders at its
-    /// natural width and the surrounding ScrollView (see BrowserView)
-    /// lets you pan across it, same as panning around a wide image.
+    /// Art lines report their natural, unwrapped size — real Micron pages
+    /// are authored against a fixed-width terminal grid, and ASCII-art
+    /// banners only hold their shape unwrapped; the surrounding ScrollView
+    /// (see BrowserView) lets you pan across a wide one, same as panning
+    /// around an image. Ordinary prose lines wrap to `availableWidth`
+    /// instead, same as any normal text — otherwise every paragraph
+    /// becomes one giant unreadable line.
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
-        uiView.attributedText.size()
+
+        if isFixedWidthArt {
+            return uiView.attributedText.size()
+        }
+
+        return uiView.sizeThatFits(CGSize(width: availableWidth, height: .greatestFiniteMagnitude))
     }
 
     func makeCoordinator() -> Coordinator {

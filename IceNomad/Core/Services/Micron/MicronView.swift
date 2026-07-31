@@ -13,62 +13,207 @@ import SwiftUI
 struct MicronView: View {
 
     let document: MicronDocument
+    /// The Browser's current viewport width — passed straight through to
+    /// each MicronTextView, which only actually uses it for ordinary
+    /// prose lines (art lines ignore it and size to their natural width).
+    let availableWidth: CGFloat
     var onLinkTap: ((MicronLink) -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
 
     /// Convenience initializer — parses raw .mu source directly.
-    init(source: String, onLinkTap: ((MicronLink) -> Void)? = nil) {
+    init(source: String, availableWidth: CGFloat, onLinkTap: ((MicronLink) -> Void)? = nil) {
         self.document = MicronParser.parse(source)
+        self.availableWidth = availableWidth
         self.onLinkTap = onLinkTap
     }
 
-    init(document: MicronDocument, onLinkTap: ((MicronLink) -> Void)? = nil) {
+    init(document: MicronDocument, availableWidth: CGFloat, onLinkTap: ((MicronLink) -> Void)? = nil) {
         self.document = document
+        self.availableWidth = availableWidth
         self.onLinkTap = onLinkTap
     }
 
     var body: some View {
 
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
 
-            ForEach(document.lines) { line in
+            ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
 
-                switch line.kind {
+                groupView(for: group)
 
-                case .divider:
-                    Divider()
-
-                case .heading(let level):
-
-                    MicronTextView(
-                        spans: line.spans,
-                        alignment: line.alignment,
-                        fontSize: headingFontSize(level),
-                        isDarkMode: colorScheme == .dark,
-                        forceBold: true,
-                        onLinkTap: onLinkTap
-                    )
-
-                case .text:
-
-                    if line.spans.isEmpty {
-
-                        Spacer().frame(height: 4)
-
-                    } else {
-
-                        MicronTextView(
-                            spans: line.spans,
-                            alignment: line.alignment,
-                            fontSize: UIFont.preferredFont(forTextStyle: .body).pointSize,
-                            isDarkMode: colorScheme == .dark,
-                            onLinkTap: onLinkTap
-                        )
-                    }
+                if index < groups.count - 1 {
+                    Spacer().frame(height: spacing(after: group))
                 }
             }
         }
+    }
+
+
+    /// Consecutive ASCII-art source lines (see MicronTextView.isFixedWidthArt)
+    /// are merged into a single run before rendering. Earlier this glued
+    /// separate per-line UITextViews together with a computed 0pt SwiftUI
+    /// spacer between them — visually close, but each view's height came
+    /// from an independent `sizeThatFits` call, and any sub-pixel rounding
+    /// difference between adjacent boxes showed up as a hairline seam/tear
+    /// between banner rows. Joining the source lines with real "\n"
+    /// characters into one NSAttributedString and letting a single
+    /// UITextView lay all of it out removes the seam entirely, since UIKit
+    /// computes line-to-line spacing itself instead of SwiftUI approximating
+    /// it from the outside — the same fix in spirit as the original move
+    /// off SwiftUI's Text(AttributedString) (see MicronTextView's header).
+    private var groups: [[MicronLine]] {
+
+        var result: [[MicronLine]] = []
+        var artRun: [MicronLine] = []
+
+        func flushArtRun() {
+            guard !artRun.isEmpty else { return }
+            result.append(artRun)
+            artRun = []
+        }
+
+        for line in document.lines {
+
+            if line.kind == .text, !line.spans.isEmpty, MicronTextView.isFixedWidthArt(line.spans) {
+                artRun.append(line)
+            } else {
+                flushArtRun()
+                result.append([line])
+            }
+        }
+
+        flushArtRun()
+
+        return result
+    }
+
+
+    @ViewBuilder
+    private func groupView(for group: [MicronLine]) -> some View {
+
+        Group {
+
+            if group.count == 1 {
+
+                lineView(for: group[0])
+
+            } else {
+
+                MicronTextView(
+                    spans: joinedSpans(group),
+                    alignment: group[0].alignment,
+                    fontSize: UIFont.preferredFont(forTextStyle: .body).pointSize,
+                    isDarkMode: colorScheme == .dark,
+                    availableWidth: availableWidth,
+                    onLinkTap: onLinkTap
+                )
+            }
+        }
+        .padding(.leading, group[0].indent)
+    }
+
+
+    private func joinedSpans(_ group: [MicronLine]) -> [MicronSpan] {
+
+        var combined: [MicronSpan] = []
+
+        for (index, line) in group.enumerated() {
+
+            combined.append(contentsOf: line.spans)
+
+            if index < group.count - 1 {
+                combined.append(MicronSpan(text: "\n"))
+            }
+        }
+
+        return combined
+    }
+
+
+    @ViewBuilder
+    private func lineView(for line: MicronLine) -> some View {
+
+        switch line.kind {
+
+        case .divider:
+
+            // Real NomadNet dividers are a repeated fill glyph drawn with
+            // whatever fg/bg color was active on the page when the
+            // divider line was hit — not a fixed neutral hairline.
+            // MicronParser captured the fill character + colors as a
+            // single-character span; repeat it out here (at render time,
+            // since only here do we know the actual viewport width) and
+            // render it through the same unwrapped/art-style path as any
+            // other banner row.
+            if let fillSpan = line.spans.first, !fillSpan.text.isEmpty {
+
+                let fontSize = UIFont.preferredFont(forTextStyle: .body).pointSize
+                let approxCharWidth = fontSize * 0.6
+                let repeatCount = max(1, Int(availableWidth / approxCharWidth))
+
+                MicronTextView(
+                    spans: [
+                        MicronSpan(
+                            text: String(repeating: fillSpan.text, count: repeatCount),
+                            foreground: fillSpan.foreground,
+                            background: fillSpan.background
+                        )
+                    ],
+                    alignment: .leading,
+                    fontSize: fontSize,
+                    isDarkMode: colorScheme == .dark,
+                    availableWidth: availableWidth,
+                    forceUnwrapped: true,
+                    onLinkTap: nil
+                )
+
+            } else {
+                Divider() // defensive fallback, shouldn't normally hit
+            }
+
+        case .heading(let level):
+
+            MicronTextView(
+                spans: line.spans,
+                alignment: line.alignment,
+                fontSize: headingFontSize(level),
+                isDarkMode: colorScheme == .dark,
+                availableWidth: availableWidth,
+                forceBold: true,
+                onLinkTap: onLinkTap
+            )
+
+        case .text:
+
+            if line.spans.isEmpty {
+                EmptyView()
+            } else {
+
+                MicronTextView(
+                    spans: line.spans,
+                    alignment: line.alignment,
+                    fontSize: UIFont.preferredFont(forTextStyle: .body).pointSize,
+                    isDarkMode: colorScheme == .dark,
+                    availableWidth: availableWidth,
+                    onLinkTap: onLinkTap
+                )
+            }
+        }
+    }
+
+
+    /// Spacing between rendered groups (a group is one prose/heading/
+    /// divider line, or one already-merged run of art lines) — normal
+    /// paragraph spacing, except a small gap following a blank source
+    /// line, matching the original per-line behavior.
+    private func spacing(after group: [MicronLine]) -> CGFloat {
+
+        if group.count == 1, group[0].kind == .text, group[0].spans.isEmpty {
+            return 4
+        }
+
+        return 10
     }
 
 
