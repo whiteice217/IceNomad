@@ -42,11 +42,25 @@ struct ChatView: View {
                             proxy.scrollTo(lastId, anchor: .bottom)
                         }
                     }
+
+                    // A message can arrive while this chat is already open —
+                    // mark it read immediately rather than leaving it to
+                    // show as unread until the user backs out and back in.
+                    messageStore.markAsRead(peerHashHex)
                 }
                 .onAppear {
 
                     if let lastId = messages.last?.id {
                         proxy.scrollTo(lastId, anchor: .bottom)
+                    }
+
+                    messageStore.currentlyOpenPeerHex = peerHashHex
+                    messageStore.markAsRead(peerHashHex)
+                }
+                .onDisappear {
+
+                    if messageStore.currentlyOpenPeerHex == peerHashHex {
+                        messageStore.currentlyOpenPeerHex = nil
                     }
                 }
             }
@@ -135,7 +149,7 @@ struct ChatView: View {
                     Text(message.timestamp, style: .time)
 
                     if message.isOutgoing {
-                        statusLabel(for: message.status)
+                        statusLabel(for: message)
                     }
                 }
                 .font(.caption2)
@@ -150,20 +164,25 @@ struct ChatView: View {
 
 
     @ViewBuilder
-    private func statusLabel(for status: DeliveryStatus) -> some View {
+    private func statusLabel(for message: ChatMessage) -> some View {
 
-        switch status {
+        switch message.status {
 
         case .sending:
-            Text("Sending…")
+            SendingIndicator()
 
         case .failed:
-            Label("Failed", systemImage: "exclamationmark.circle.fill")
-                .foregroundStyle(Theme.danger)
-                .labelStyle(.titleAndIcon)
+            Button {
+                messageStore.retry(messageId: message.id, hex: peerHashHex)
+            } label: {
+                Label("Failed — Tap to Retry", systemImage: "exclamationmark.circle.fill")
+                    .foregroundStyle(Theme.danger)
+                    .labelStyle(.titleAndIcon)
+            }
+            .buttonStyle(.plain)
 
         case .sent, .delivered:
-            EmptyView()
+            Text("Sent")
         }
     }
 
@@ -172,22 +191,50 @@ struct ChatView: View {
 
     private var inputBar: some View {
 
-        HStack(spacing: 10) {
+        HStack(alignment: .bottom, spacing: 10) {
 
             TextField("Message", text: $draft, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...5)
+                .font(.system(size: 17))
+                .lineLimit(1...6)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(Theme.divider, lineWidth: 1)
+                )
+                // A vertical-axis TextField treats Return as "insert a
+                // newline" by default with no built-in way to distinguish
+                // plain Return from Shift+Return — `onSubmit` never fires
+                // at all. Intercepting the key press ourselves gets the
+                // desktop-chat convention Bryan asked for (Mac keyboard:
+                // Return sends, Shift+Return inserts a newline) without
+                // giving up multi-line composing.
+                .onKeyPress(phases: .down) { press in
+
+                    guard press.key == .return, !press.modifiers.contains(.shift) else {
+                        return .ignored
+                    }
+
+                    sendDraft()
+                    return .handled
+                }
 
             Button {
                 sendDraft()
             } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title2)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(Theme.outgoingBubble, in: Circle())
             }
+            .buttonStyle(.plain)
             .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
         }
         .padding(.horizontal)
-        .padding(.vertical, 8)
+        .padding(.vertical, 10)
     }
 
 
@@ -195,5 +242,23 @@ struct ChatView: View {
 
         messageStore.send(text: draft, to: peerHashHex)
         draft = ""
+    }
+}
+
+
+/// Cycling "Sending." / "Sending.." / "Sending..." — purely time-driven
+/// via `TimelineView` rather than an owned `Timer`/`@State` counter, so
+/// there's nothing to invalidate/leak if the bubble scrolls offscreen or
+/// the status changes mid-animation.
+private struct SendingIndicator: View {
+
+    var body: some View {
+
+        TimelineView(.periodic(from: .now, by: 0.5)) { context in
+
+            let dotCount = Int(context.date.timeIntervalSinceReferenceDate / 0.5) % 3 + 1
+
+            Text("Sending" + String(repeating: ".", count: dotCount))
+        }
     }
 }

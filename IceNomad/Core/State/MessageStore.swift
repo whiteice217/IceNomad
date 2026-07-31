@@ -29,6 +29,11 @@ final class MessageStore: ObservableObject {
 
     @Published private(set) var messagesByPeer: [String: [ChatMessage]] = [:]
 
+    /// Set by `ChatView` while it's on-screen for a given peer — lets
+    /// `receive` skip showing a banner for a conversation you're already
+    /// looking at. Not persisted; runtime-only.
+    var currentlyOpenPeerHex: String?
+
 
     func messages(for hex: String) -> [ChatMessage] {
 
@@ -39,6 +44,42 @@ final class MessageStore: ObservableObject {
     func lastMessage(for hex: String) -> ChatMessage? {
 
         messages(for: hex).last
+    }
+
+
+    func unreadCount(for hex: String) -> Int {
+
+        (messagesByPeer[hex] ?? []).filter { !$0.isOutgoing && !$0.isRead }.count
+    }
+
+
+    var totalUnreadCount: Int {
+
+        messagesByPeer.values.reduce(0) { total, messages in
+            total + messages.filter { !$0.isOutgoing && !$0.isRead }.count
+        }
+    }
+
+
+    func markAsRead(_ hex: String) {
+
+        guard var peerMessages = messagesByPeer[hex] else {
+            return
+        }
+
+        var didChange = false
+
+        for index in peerMessages.indices where !peerMessages[index].isOutgoing && !peerMessages[index].isRead {
+            peerMessages[index].isRead = true
+            didChange = true
+        }
+
+        guard didChange else {
+            return
+        }
+
+        messagesByPeer[hex] = peerMessages
+        persist()
     }
 
 
@@ -78,14 +119,49 @@ final class MessageStore: ObservableObject {
         let message = ChatMessage(peerHashHex: hex, text: trimmed, isOutgoing: true, status: .sending)
         append(message, for: hex)
 
-        InterfaceManager.shared.sendDirectMessage(text: trimmed, to: hex) { [weak self] succeeded in
+        attemptDelivery(text: trimmed, to: hex, messageId: message.id)
+
+        return message
+    }
+
+
+    /// Re-attempts a message that previously failed, in place — reuses
+    /// its existing bubble/id and just flips it back to `.sending` rather
+    /// than appending a duplicate, so "Tap to Retry" doesn't leave two
+    /// copies of the same message in the conversation.
+    func retry(messageId: UUID, hex: String) {
+
+        guard var peerMessages = messagesByPeer[hex],
+              let index = peerMessages.firstIndex(where: { $0.id == messageId }),
+              peerMessages[index].isOutgoing
+        else {
+            return
+        }
+
+        let text = peerMessages[index].text
+        peerMessages[index].status = .sending
+        messagesByPeer[hex] = peerMessages
+        persist()
+
+        attemptDelivery(text: text, to: hex, messageId: messageId)
+    }
+
+
+    /// Shared by `send` and `retry`: DIRECT (Link-based) delivery first —
+    /// confirmed against a real LXMF listener that plain opportunistic
+    /// packets to this network don't arrive reliably, while DIRECT does
+    /// every time. Falls back to opportunistic only if a Link genuinely
+    /// can't be established but we still know the peer's public key.
+    private func attemptDelivery(text: String, to hex: String, messageId: UUID) {
+
+        InterfaceManager.shared.sendDirectMessage(text: text, to: hex) { [weak self] succeeded in
 
             guard let self else {
                 return
             }
 
             if succeeded {
-                self.updateStatus(.sent, forMessageId: message.id, hex: hex)
+                self.updateStatus(.sent, forMessageId: messageId, hex: hex)
                 return
             }
 
@@ -93,20 +169,18 @@ final class MessageStore: ObservableObject {
             // know the peer's public key (a Link-specific failure, e.g.
             // they don't accept links, doesn't mean they're unreachable).
             guard let peer = PeerStore.shared.peers.first(where: { $0.destinationHashHex == hex.lowercased() }) else {
-                self.updateStatus(.failed, forMessageId: message.id, hex: hex)
+                self.updateStatus(.failed, forMessageId: messageId, hex: hex)
                 return
             }
 
             let opportunisticSucceeded = InterfaceManager.shared.sendMessage(
-                text: trimmed,
+                text: text,
                 to: hex,
                 recipientPublicKey: peer.identityPublicKey
             )
 
-            self.updateStatus(opportunisticSucceeded ? .sent : .failed, forMessageId: message.id, hex: hex)
+            self.updateStatus(opportunisticSucceeded ? .sent : .failed, forMessageId: messageId, hex: hex)
         }
-
-        return message
     }
 
 
@@ -136,10 +210,17 @@ final class MessageStore: ObservableObject {
         let message = ChatMessage(
             peerHashHex: hex,
             text: text,
-            isOutgoing: false
+            isOutgoing: false,
+            isRead: false
         )
 
         append(message, for: hex)
+
+        NotificationSoundPlayer.shared.playIncomingMessageSound()
+
+        if currentlyOpenPeerHex != hex {
+            NotificationBannerCenter.shared.show(peerHashHex: hex, text: text)
+        }
     }
 
 

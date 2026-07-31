@@ -55,39 +55,95 @@ struct ContentView: View {
     /// selection now happens from the Announce tab instead of a popup.
     @State private var pendingBrowseHex: String?
 
+    @ObservedObject private var messageStore = MessageStore.shared
+    @ObservedObject private var bannerCenter = NotificationBannerCenter.shared
+
     var body: some View {
 
-        TabView(selection: $selectedTab) {
+        ZStack(alignment: .top) {
 
-            ConnectionsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, pendingBrowseHex: $pendingBrowseHex)
-                .tabItem {
-                    Label(AppTab.connections.label, systemImage: AppTab.connections.icon)
-                }
-                .tag(AppTab.connections)
+            TabView(selection: $selectedTab) {
 
-            AnnounceView(selectedTab: $selectedTab, pendingBrowseHex: $pendingBrowseHex)
-                .tabItem {
-                    Label(AppTab.announce.label, systemImage: AppTab.announce.icon)
-                }
-                .tag(AppTab.announce)
+                ConnectionsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, pendingBrowseHex: $pendingBrowseHex)
+                    .tabItem {
+                        Label(AppTab.connections.label, systemImage: AppTab.connections.icon)
+                    }
+                    .tag(AppTab.connections)
 
-            MessagesView(pendingChatHex: $pendingChatHex)
-                .tabItem {
-                    Label(AppTab.messages.label, systemImage: AppTab.messages.icon)
-                }
-                .tag(AppTab.messages)
+                AnnounceView(selectedTab: $selectedTab, pendingBrowseHex: $pendingBrowseHex)
+                    .tabItem {
+                        Label(AppTab.announce.label, systemImage: AppTab.announce.icon)
+                    }
+                    .tag(AppTab.announce)
 
-            BrowserView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, pendingBrowseHex: $pendingBrowseHex)
-                .tabItem {
-                    Label(AppTab.browser.label, systemImage: AppTab.browser.icon)
-                }
-                .tag(AppTab.browser)
+                MessagesView()
+                    .tabItem {
+                        Label(AppTab.messages.label, systemImage: AppTab.messages.icon)
+                    }
+                    .tag(AppTab.messages)
+                    .badge(messageStore.totalUnreadCount)
 
-            SettingsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex)
-                .tabItem {
-                    Label(AppTab.settings.label, systemImage: AppTab.settings.icon)
+                BrowserView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, pendingBrowseHex: $pendingBrowseHex)
+                    .tabItem {
+                        Label(AppTab.browser.label, systemImage: AppTab.browser.icon)
+                    }
+                    .tag(AppTab.browser)
+
+                SettingsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex)
+                    .tabItem {
+                        Label(AppTab.settings.label, systemImage: AppTab.settings.icon)
+                    }
+                    .tag(AppTab.settings)
+            }
+            // Opening a chat from anywhere other than Messages' own list used
+            // to route through a Binding into MessagesView and hope its
+            // onChange fired — unreliable specifically when the Messages tab
+            // wasn't already the active one (two earlier fix attempts at the
+            // symptom both failed). Presenting the chat as a modal sheet
+            // directly here instead sidesteps the question entirely: this
+            // TabView container is always live regardless of which tab is
+            // showing, so this always fires. ChatView already handles both a
+            // known address (existing messages) and a brand-new one (empty,
+            // ready to type) the same way, so no separate "new message" path
+            // is needed — this doubles as that.
+            .sheet(isPresented: pendingChatPresented) {
+
+                if let hex = pendingChatHex {
+
+                    NavigationStack {
+                        ChatView(peerHashHex: hex)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Done") { pendingChatHex = nil }
+                                }
+                            }
+                    }
                 }
-                .tag(AppTab.settings)
+            }
+
+            // Themed, pulsing "new message" toast — overlaid above the
+            // TabView (not tied to any one tab) so it's visible regardless
+            // of which tab is active when a message arrives.
+            if let banner = bannerCenter.current {
+
+                IncomingMessageBannerView(banner: banner) {
+                    bannerCenter.dismiss()
+                    pendingChatHex = banner.peerHashHex
+                }
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(1)
+            }
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: bannerCenter.current)
+    }
+
+
+    private var pendingChatPresented: Binding<Bool> {
+
+        Binding(
+            get: { pendingChatHex != nil },
+            set: { if !$0 { pendingChatHex = nil } }
+        )
     }
 }

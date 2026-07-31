@@ -63,6 +63,15 @@ final class ContactStore: ObservableObject {
     }
 
 
+    /// One persist() for the whole batch instead of removeContact(hex:)
+    /// in a loop — matters for a multi-select delete of several at once.
+    func removeContacts(hexes: Set<String>) {
+
+        contacts.removeAll { hexes.contains($0.destinationHashHex) }
+        persist()
+    }
+
+
     /// Sets (or clears, if label is nil/empty) a custom label for a peer.
     /// If the peer isn't already a contact, labeling them adds them as one —
     /// naming someone implies you want to remember them.

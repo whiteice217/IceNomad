@@ -7,23 +7,26 @@ import SwiftUI
 
 struct MessagesView: View {
 
-    @Binding var pendingChatHex: String?
-
     @ObservedObject private var messageStore = MessageStore.shared
     @ObservedObject private var contactStore = ContactStore.shared
+    // Not read directly below — its only job is to make this view
+    // re-render when a new announce resolves a peer's name, so
+    // `contactStore.displayName(for:)` (which falls back to PeerStore's
+    // live announced name for anyone without a manually-set label) stays
+    // up to date instead of only refreshing "by accident" whenever some
+    // other unrelated state change happens to trigger a redraw.
+    @ObservedObject private var peerStore = PeerStore.shared
 
     @State private var isComposing = false
     @State private var pendingComposedHex: String?
+    @State private var isShowingContacts = false
     /// Single source of truth for navigation — the conversation list's
-    /// own NavigationLink(value:), the compose-sheet's completion, and
-    /// the cross-tab pendingChatHex hint (QR scan, Micron lxmf@hash link)
-    /// all push onto this SAME path now. Previously the sheet/hint flow
-    /// used a separate `navigationDestination(item:)` alongside the
-    /// list's `navigationDestination(for: String.self)` — two resolvers
-    /// registered for the same underlying String type on one
-    /// NavigationStack is a real SwiftUI conflict (confirmed by it
-    /// actually breaking: a QR scan routed to the Messages tab but never
-    /// pushed the chat), so there's only one mechanism now.
+    /// own NavigationLink(value:) and the compose-sheet's completion both
+    /// push onto this. (A cross-tab "open this chat" hint used to also
+    /// feed in here, but that's now a modal sheet presented directly from
+    /// ContentView instead — see its comment for why: relying on this
+    /// view's onChange while its tab might not be the active one was
+    /// unreliable across two separate fix attempts.)
     @State private var path: [String] = []
 
     var body: some View {
@@ -82,6 +85,24 @@ struct MessagesView: View {
             }
             .toolbar {
 
+                ToolbarItem(placement: .topBarLeading) {
+
+                    Button {
+                        isShowingContacts = true
+                    } label: {
+                        Image(systemName: "person.2")
+                    }
+                    .popover(isPresented: $isShowingContacts, arrowEdge: .top) {
+
+                        ContactsManagerPopover(contactStore: contactStore) { hex in
+
+                            isShowingContacts = false
+                            path.append(hex)
+                        }
+                        .presentationCompactAdaptation(.popover)
+                    }
+                }
+
                 ToolbarItem(placement: .topBarTrailing) {
 
                     Button {
@@ -109,19 +130,14 @@ struct MessagesView: View {
                     isComposing = false
                 }
             }
-            .onChange(of: pendingChatHex) { _, hex in
-
-                guard let hex else { return }
-
-                path.append(hex)
-                pendingChatHex = nil
-            }
         }
     }
 
 
     @ViewBuilder
     private func conversationRow(_ hex: String) -> some View {
+
+        let unreadCount = messageStore.unreadCount(for: hex)
 
         HStack(spacing: 12) {
 
@@ -132,24 +148,37 @@ struct MessagesView: View {
             VStack(alignment: .leading, spacing: 2) {
 
                 Text(contactStore.displayName(for: hex))
-                    .font(.headline)
+                    .font(unreadCount > 0 ? .headline : .subheadline)
 
                 if let last = messageStore.lastMessage(for: hex) {
 
                     Text(last.text)
                         .font(.subheadline)
-                        .foregroundStyle(Theme.textSecondary)
+                        .foregroundStyle(unreadCount > 0 ? Theme.textPrimary : Theme.textSecondary)
                         .lineLimit(1)
                 }
             }
 
             Spacer()
 
-            if let last = messageStore.lastMessage(for: hex) {
+            VStack(alignment: .trailing, spacing: 6) {
 
-                Text(last.timestamp, style: .relative)
-                    .font(.caption2)
-                    .foregroundStyle(Theme.textSecondary)
+                if let last = messageStore.lastMessage(for: hex) {
+
+                    Text(last.timestamp, style: .relative)
+                        .font(.caption2)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+
+                if unreadCount > 0 {
+
+                    Text("\(unreadCount)")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Theme.accent, in: Capsule())
+                }
             }
         }
         .padding(.vertical, 4)

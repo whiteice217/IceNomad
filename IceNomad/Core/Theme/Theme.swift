@@ -109,9 +109,25 @@ enum Theme {
 
 
     // MARK: - Chat bubbles
+    //
+    // Dedicated colors rather than reusing `accent`/`surface` directly —
+    // the general-purpose accent is a bright ice-blue tuned for buttons/
+    // controls, which in light mode is light enough that white bubble
+    // text sits on it with weak contrast. These are deliberately deeper/
+    // more saturated so white text stays legible in both appearances,
+    // while still reading as "the app's blue," not a generic iMessage
+    // blue — and the incoming bubble is a clearly visible cool slate
+    // instead of the very subtle card-elevation `surface` tone.
 
-    static let outgoingBubble = accent
-    static let incomingBubble = surface
+    static let outgoingBubble = adaptive(
+        light: UIColor(red: 0.106, green: 0.478, blue: 0.831, alpha: 1),
+        dark:  UIColor(red: 0.145, green: 0.412, blue: 0.788, alpha: 1)
+    )
+
+    static let incomingBubble = adaptive(
+        light: UIColor(red: 0.878, green: 0.906, blue: 0.933, alpha: 1),
+        dark:  UIColor(red: 0.161, green: 0.220, blue: 0.290, alpha: 1)
+    )
 }
 
 
