@@ -26,13 +26,30 @@ struct SettingsView: View {
 
                     TextField("Display Name", text: $userProfile.displayName)
 
+                    if userProfile.hasUnannouncedNameChange {
+
+                        Button {
+                            InterfaceManager.shared.sendAnnounce()
+                        } label: {
+                            Label("Name Changed — Announce Now", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
+                                .foregroundStyle(Theme.warning)
+                        }
+                    }
+
                 } header: {
                     Text("Your Identity")
                 } footer: {
-                    Text("Shown to others as your name when you announce.")
+
+                    if userProfile.hasUnannouncedNameChange {
+                        Text("Other peers still see your old name until you announce again — they only learn it from an announce, not automatically.")
+                    } else {
+                        Text("Shown to others as your name when you announce.")
+                    }
                 }
 
                 NotificationSettingsSection(isPickingCustomSound: $isPickingCustomNotificationSound)
+
+                FirmwareToolsSection()
 
                 Section {
 
