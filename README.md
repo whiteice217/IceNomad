@@ -29,11 +29,20 @@
 
 ## 📸 Screenshots
 
+The full arctic/penguin dark theme, in action — addresses and contact hashes blurred out below are otherwise unedited.
+
 <p align="center">
-  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/SplashScreenPreview.jpeg" width="220" alt="Splash Screen">
-  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/ConnectionsPreviewRNode.jpeg" width="220" alt="Connections">
-  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/AnnouncementView.jpg" width="220" alt="Announcements">
-  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/MessageView.jpg" width="220" alt="Messages">
+  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/SplashPreview2.png" width="220" alt="Splash Screen">
+  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/ConnectionsPreview2.png" width="220" alt="Connections, with address redacted">
+  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/SettingsPreview.png" width="220" alt="Settings">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/AnnouncePreview2.png" width="220" alt="Announce feed">
+  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/NodeDrawerPreview.png" width="220" alt="NomadNet node drawer">
+  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/BrowserPreview.png" width="220" alt="NomadNet page rendering">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/MessagesPreview2.png" width="220" alt="Messages, with contact hash redacted">
 </p>
 
 ---
