@@ -56,19 +56,6 @@ class PacketParser {
             }
 
 
-            let header = Array(buffer.prefix(19))
-
-
-            let flags = header[2]
-
-
-            print(
-                "🔎 Frame detected",
-                "Flags:",
-                String(format: "%02X", flags)
-            )
-
-
             // Find next frame marker, honoring KISS-style escaping.
             // 0x7D is an escape byte — whatever byte follows it is part of
             // the payload, not a real marker, even if it looks like 0x7E.
@@ -133,14 +120,6 @@ class PacketParser {
 
             let frameData = unescape(rawFrame)
 
-
-            print(
-                "📦 Extracted frame:",
-                frameData.count,
-                "bytes"
-            )
-
-
             decode(frameData)
         }
     }
@@ -202,12 +181,6 @@ class PacketParser {
         let frame = ReticulumFrame(
             data: data
         )
-
-
-        print("🚀 FRAME READY")
-        print("Type:", frame.packetType)
-        print("Header:", frame.headerType)
-        print("Size:", frame.data.count)
 
 
         onFrameReceived?(frame)

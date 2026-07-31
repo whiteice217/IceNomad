@@ -57,9 +57,15 @@ final class MessageStore: ObservableObject {
 
     // MARK: - Sending / Receiving
 
-    /// Encrypts and sends a real message, if the peer's public key is
-    /// known. Otherwise records the message as .failed rather than
-    /// pretending it went out.
+    /// Sends via DIRECT (Link-based) delivery first — confirmed against a
+    /// real LXMF listener that plain opportunistic packets to this
+    /// network don't arrive reliably, while DIRECT does every time.
+    /// Falls back to opportunistic only if a Link genuinely can't be
+    /// established but we still know the peer's public key. Either path
+    /// actively asks the network for an unknown peer's identity first
+    /// (via LinkManager/PeerStore), rather than failing instantly for a
+    /// peer that's actually reachable — the message shows as .sending
+    /// while that's in flight.
     @discardableResult
     func send(text: String, to hex: String) -> ChatMessage {
 
@@ -69,28 +75,59 @@ final class MessageStore: ObservableObject {
             return ChatMessage(peerHashHex: hex, text: "", isOutgoing: true, status: .failed)
         }
 
-        guard let peer = PeerStore.shared.peers.first(where: { $0.destinationHashHex == hex }) else {
+        let message = ChatMessage(peerHashHex: hex, text: trimmed, isOutgoing: true, status: .sending)
+        append(message, for: hex)
 
-            let message = ChatMessage(peerHashHex: hex, text: trimmed, isOutgoing: true, status: .failed)
-            append(message, for: hex)
-            return message
+        InterfaceManager.shared.sendDirectMessage(text: trimmed, to: hex) { [weak self] succeeded in
+
+            guard let self else {
+                return
+            }
+
+            if succeeded {
+                self.updateStatus(.sent, forMessageId: message.id, hex: hex)
+                return
+            }
+
+            // DIRECT failed — fall back to opportunistic if we at least
+            // know the peer's public key (a Link-specific failure, e.g.
+            // they don't accept links, doesn't mean they're unreachable).
+            guard let peer = PeerStore.shared.peers.first(where: { $0.destinationHashHex == hex.lowercased() }) else {
+                self.updateStatus(.failed, forMessageId: message.id, hex: hex)
+                return
+            }
+
+            let opportunisticSucceeded = InterfaceManager.shared.sendMessage(
+                text: trimmed,
+                to: hex,
+                recipientPublicKey: peer.identityPublicKey
+            )
+
+            self.updateStatus(opportunisticSucceeded ? .sent : .failed, forMessageId: message.id, hex: hex)
         }
 
-        let succeeded = InterfaceManager.shared.sendMessage(
-            text: trimmed,
-            to: hex,
-            recipientPublicKey: peer.identityPublicKey
-        )
-
-        let message = ChatMessage(
-            peerHashHex: hex,
-            text: trimmed,
-            isOutgoing: true,
-            status: succeeded ? .sent : .failed
-        )
-
-        append(message, for: hex)
         return message
+    }
+
+
+    private func updateStatus(_ status: DeliveryStatus, forMessageId id: UUID, hex: String) {
+
+        guard var peerMessages = messagesByPeer[hex],
+              let index = peerMessages.firstIndex(where: { $0.id == id })
+        else {
+            return
+        }
+
+        peerMessages[index].status = status
+        messagesByPeer[hex] = peerMessages
+        persist()
+    }
+
+
+    func deleteConversation(for hex: String) {
+
+        messagesByPeer.removeValue(forKey: hex)
+        persist()
     }
 
 

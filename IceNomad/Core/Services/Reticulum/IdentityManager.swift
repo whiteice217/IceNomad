@@ -21,10 +21,13 @@ final class ReticulumIdentity {
 
     static let publicKeySize = 64   // 32 (X25519 pub) + 32 (Ed25519 pub)
     static let privateKeySize = 64  // 32 (X25519 priv) + 32 (Ed25519 priv)
-    /// HKDF output length feeding the Token key. RNS.Identity.encrypt/decrypt
-    /// derive a 32-byte key specifically (→ Token's AES-128-CBC mode) —
-    /// confirmed against RNS's own test vectors, not just source reading.
-    static let derivedKeyLength = 32
+    /// HKDF output length feeding the Token key. RNS added AES-256 support
+    /// in v0.9.5 and REMOVED legacy AES-128 support entirely in v1.0.0
+    /// (July 2025) — meaning the current live network requires a 64-byte
+    /// derived key (Token's AES-256-CBC mode), not 32. An earlier "fix"
+    /// here to 32 was based on an outdated pre-1.0 test fixture and was
+    /// actually a regression against the real, current network.
+    static let derivedKeyLength = 64
 
     enum IdentityError: Error {
         case invalidKeyLength

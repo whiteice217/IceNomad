@@ -85,7 +85,12 @@ enum MicronParser {
         var background: Color?
         var alignment: TextAlignment = .leading
 
-        for rawLine in source.components(separatedBy: "\n") {
+        // Split on any newline convention (\n, \r\n, \r) — real NomadNet
+        // pages come from all kinds of authoring tools/platforms, and a
+        // stray \r left at the end of a line (from splitting \r\n on
+        // just \n) renders as a bare carriage-return character, which
+        // makes text overlap/look jumbled instead of just wrapping.
+        for rawLine in source.components(separatedBy: .newlines) {
 
             // Comment lines are ignored entirely.
             if rawLine.hasPrefix("#") {

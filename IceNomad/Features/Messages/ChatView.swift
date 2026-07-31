@@ -34,6 +34,7 @@ struct ChatView: View {
                     }
                     .padding()
                 }
+                .background(Theme.background)
                 .onChange(of: messages.count) {
 
                     if let lastId = messages.last?.id {
@@ -66,7 +67,7 @@ struct ChatView: View {
 
                     Text(peerHashHex)
                         .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                         .lineLimit(1)
                 }
             }
@@ -125,18 +126,44 @@ struct ChatView: View {
                 Text(message.text)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
-                    .background(message.isOutgoing ? Color.blue : Color(.secondarySystemBackground))
-                    .foregroundStyle(message.isOutgoing ? .white : .primary)
+                    .background(message.isOutgoing ? Theme.outgoingBubble : Theme.incomingBubble)
+                    .foregroundStyle(message.isOutgoing ? .white : Theme.textPrimary)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                Text(message.timestamp, style: .time)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+
+                    Text(message.timestamp, style: .time)
+
+                    if message.isOutgoing {
+                        statusLabel(for: message.status)
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(Theme.textSecondary)
             }
 
             if !message.isOutgoing {
                 Spacer(minLength: 40)
             }
+        }
+    }
+
+
+    @ViewBuilder
+    private func statusLabel(for status: DeliveryStatus) -> some View {
+
+        switch status {
+
+        case .sending:
+            Text("Sending…")
+
+        case .failed:
+            Label("Failed", systemImage: "exclamationmark.circle.fill")
+                .foregroundStyle(Theme.danger)
+                .labelStyle(.titleAndIcon)
+
+        case .sent, .delivered:
+            EmptyView()
         }
     }
 

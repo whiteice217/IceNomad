@@ -18,7 +18,6 @@ struct BrowserView: View {
 
     @Binding var selectedTab: AppTab
 
-    @StateObject private var orientation = OrientationObserver()
     @StateObject private var browserState = BrowserState()
     @ObservedObject private var downloadManager = DownloadManager.shared
     @ObservedObject private var peerStore = PeerStore.shared
@@ -26,6 +25,7 @@ struct BrowserView: View {
 
     @State private var isShowingDownloads = false
     @State private var isNodeDrawerOpen = false
+    @FocusState private var isAddressFieldFocused: Bool
 
     var body: some View {
         ZStack {
@@ -36,13 +36,20 @@ struct BrowserView: View {
 
                 Divider()
 
-                ScrollView {
+                // Real Micron pages are authored against a fixed-width
+                // terminal grid — ASCII-art banners only hold their shape
+                // unwrapped. Rather than force-reflowing (and breaking)
+                // them to fit a narrow phone screen, the page renders at
+                // its natural width and pans like an image; landscape
+                // naturally reveals more of it at once.
+                ScrollView([.horizontal, .vertical]) {
                     MicronView(source: browserState.content) { link in
                         browserState.followLink(link)
                     }
                     .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .background(Theme.background)
+                .scrollDismissesKeyboard(.immediately)
             }
 
             NodeDrawerView(
@@ -59,12 +66,6 @@ struct BrowserView: View {
             }
 
             FloatingDockView(selectedTab: $selectedTab)
-
-            if orientation.isLandscape {
-                OrientationOverlay()
-                    .transition(.opacity)
-                    .zIndex(2)
-            }
         }
         .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: $isShowingDownloads) {
@@ -107,12 +108,30 @@ struct BrowserView: View {
             .disabled(browserState.current?.destinationHashHex == nil)
 
             TextField("Node hash : path", text: $browserState.addressText, onCommit: {
+                isAddressFieldFocused = false
                 browserState.navigateFromAddressBar()
             })
             .textFieldStyle(.roundedBorder)
             .font(.system(.footnote, design: .monospaced))
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
+            .submitLabel(.go)
+            .focused($isAddressFieldFocused)
+
+            Button {
+                isAddressFieldFocused = false
+                browserState.navigateFromAddressBar()
+            } label: {
+                Image(systemName: "arrow.right.circle.fill")
+            }
+            .disabled(browserState.addressText.trimmingCharacters(in: .whitespaces).isEmpty)
+
+            Button {
+                browserState.refresh()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .disabled(browserState.current == nil)
 
             DownloadsButton(progress: downloadManager.activeProgress) {
                 isShowingDownloads = true

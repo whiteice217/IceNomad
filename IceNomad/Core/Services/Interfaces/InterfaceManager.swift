@@ -5,6 +5,7 @@
 
 import Foundation
 import Combine
+import OSLog
 
 
 class InterfaceManager: ObservableObject {
@@ -20,13 +21,29 @@ class InterfaceManager: ObservableObject {
 
     // MARK: - Properties
 
-    private let packetParser = PacketParser()
-
     @Published private(set) var interfaces: [ReticulumInterface] = []
 
     @Published var connectionStates: [String: Bool] = [:]
 
     @Published var receivedPacketCount: Int = 0
+
+    /// interface name -> its "TCPInterface[name/host:port]"-style
+    /// description, used for periodic tunnel-synthesis re-signalling.
+    private var tcpInterfaceDescriptions: [String: String] = [:]
+
+    private var tunnelSynthesisTimer: Timer?
+
+    /// The most recently observed transport instance ID from any incoming
+    /// frame with two address fields (HEADER_2) — i.e. our upstream
+    /// relay's own identity. As a leaf client with a single upstream
+    /// interface, every packet requiring relay always names the same
+    /// transport ID here (whoever we're directly connected to), so this
+    /// one value, learned passively from ordinary traffic like announces,
+    /// is all that's needed to correctly address any outbound unicast
+    /// packet. See PacketBuilder.buildDataPacket's doc comment for why a
+    /// destination hash alone (HEADER_1) silently fails to reach anyone
+    /// not on our own physical interface.
+    private(set) var lastKnownTransportId: Data?
 
 
     // MARK: - Init
@@ -34,33 +51,70 @@ class InterfaceManager: ObservableObject {
     init() {
 
         let myHash = ReticulumDestination.myDestinationHashHex
+        let myLXMFHash = LXMFDestination.myDestinationHashHex
         let myIdentityHash = IdentityStore.shared.myIdentity.hash.hexString
 
-        print("🆔 My identity hash:    \(myIdentityHash)")
-        print("🆔 My destination hash: \(myHash)")
+        Log.identity.info("My identity hash: \(myIdentityHash, privacy: .public) — IceNomad: \(myHash, privacy: .public) — LXMF: \(myLXMFHash, privacy: .public)")
 
-        packetParser.onFrameReceived = { [weak self] frame in
+        LinkManager.shared.onIncomingLXMFMessage = { [weak self] fullEnvelope in
+            self?.deliverDirectLXMFMessage(fullEnvelope)
+        }
 
-            DispatchQueue.main.async {
-
-                self?.handle(frame: frame)
-            }
+        // Periodically re-signal "this TCP connection carries traffic for
+        // me" to the upstream node — see buildSynthesizeTunnelPacket's
+        // doc comment. Without this, a connection that's been open and
+        // idle for a while (relative to inactivity, not wall-clock —
+        // announces alone don't count as far as the upstream reverse-
+        // route table is concerned) silently loses its return path:
+        // things we send keep going out fine, but replies addressed
+        // back to us (a Link proof, a delivered message) have nowhere
+        // to go and vanish upstream with zero trace on our end.
+        tunnelSynthesisTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            self?.sendSynthesizeTunnelToAllConnected()
         }
     }
 
 
-    private func handle(frame: ReticulumFrame) {
+    private func handle(frame: ReticulumFrame, source: ConnectionType) {
+
+        if let transportId = frame.transportId {
+            lastKnownTransportId = transportId
+        }
 
         let packet = ReticulumPacket(frame: frame)
 
         if packet.isAnnounce {
 
-            debugLogIncomingAnnounce(packet)
-            PeerStore.shared.handle(frame: frame)
+            logAnnounceParseFailures(packet)
+            PeerStore.shared.handle(frame: frame, source: source)
+            return
+        }
+
+        if packet.packetType == "LINKREQUEST" {
+
+            // The only destination we accept incoming links to is our
+            // LXMF delivery destination — that's what lets real LXMF
+            // clients deliver a message via DIRECT method.
+            LinkManager.shared.handleIncomingLinkRequest(packet: packet)
+            return
+        }
+
+        if packet.packetType == "PROOF" {
+
+            // Either an LRPROOF completing a handshake we initiated, or
+            // (rarely) a packet-delivery proof over a link we accepted.
+            LinkManager.shared.handle(packet: packet)
             return
         }
 
         if packet.isData {
+
+            // Try Link routing first: a DATA packet over an established
+            // (or handshaking) link is addressed by link_id, which looks
+            // just like any other destination hash at this layer.
+            if LinkManager.shared.handle(packet: packet) {
+                return
+            }
 
             handleDataPacket(packet)
             return
@@ -68,66 +122,60 @@ class InterfaceManager: ObservableObject {
     }
 
 
-    /// Logs every parsed announce, and flags loudly if it's OUR OWN
-    /// announce coming back to us — the clearest possible proof that an
-    /// outbound announce actually reached the network and was
-    /// considered well-formed by whatever relayed it back.
-    private func debugLogIncomingAnnounce(_ packet: ReticulumPacket) {
+    /// Announces arrive constantly (every few seconds on a live network)
+    /// so logging each one would just be noise — only real parse
+    /// failures are worth a log line here.
+    private func logAnnounceParseFailures(_ packet: ReticulumPacket) {
 
         guard let destinationHash = packet.destinationHash else {
-            print("📡 ANNOUNCE IN — but no destination hash could be parsed from it.")
+            Log.reticulum.error("Incoming announce had no parseable destination hash")
             return
         }
 
-        let hex = destinationHash.hexString
-        let isMine = destinationHash == ReticulumDestination.myDestinationHash
-
-        guard let announce = AnnouncePacket(packet: packet) else {
-            print("📡 ANNOUNCE IN from \(hex) — but the payload didn't parse as a valid announce.")
-            return
-        }
-
-        let name = announce.displayName ?? "(unnamed)"
-
-        if isMine {
-            print("🔁 MY OWN ANNOUNCE CAME BACK — \(hex) as \"\(name)\". This confirms your announce reached the network and round-tripped successfully.")
-        } else {
-            print("📡 ANNOUNCE IN — \(hex) as \"\(name)\", \(packet.frame.hopCount.map { "\($0) hop(s)" } ?? "hop count unknown")")
+        if AnnouncePacket(packet: packet) == nil {
+            Log.reticulum.error("Incoming announce from \(destinationHash.hexString, privacy: .public) didn't parse as a valid announce payload")
         }
     }
 
 
     /// A DATA packet carries no sender address by design (Reticulum's
-    /// "initiator anonymity") — only whether it's addressed to us. If it
-    /// is, decrypt with our own identity and unpack the sender info
-    /// IceNomad embeds inside the envelope (see MessageEnvelope.swift).
+    /// "initiator anonymity") — only whether it's addressed to us. We
+    /// listen on two destinations: our own icenomad.chat one (using our
+    /// own envelope, which embeds the sender's key) and a real
+    /// lxmf.delivery one (using real LXMF's format, which requires
+    /// already knowing the sender from a prior announce).
     private func handleDataPacket(_ packet: ReticulumPacket) {
 
         guard let destinationHash = packet.destinationHash else {
-            print("📩 DATA IN — but no destination hash could be parsed from it.")
+            Log.reticulum.error("Incoming data packet had no parseable destination hash")
             return
         }
 
-        let hex = destinationHash.hexString
-        let mine = ReticulumDestination.myDestinationHashHex
-        let isMine = destinationHash == ReticulumDestination.myDestinationHash
-
-        print("📩 DATA IN — addressed to \(hex) (mine is \(mine)) — \(isMine ? "MATCH, attempting decrypt" : "not for me, ignoring")")
-
-        guard isMine else {
+        if destinationHash == ReticulumDestination.myDestinationHash {
+            handleIceNomadDataPacket(packet)
             return
         }
+
+        if destinationHash == LXMFDestination.myDestinationHash {
+            handleLXMFDataPacket(packet)
+            return
+        }
+
+        // Addressed to someone else — normal, happens for every relayed
+        // packet on a shared transport node. Not worth logging.
+    }
+
+
+    private func handleIceNomadDataPacket(_ packet: ReticulumPacket) {
 
         do {
 
             let plaintext = try IdentityStore.shared.myIdentity.decrypt(packet.payload)
 
             guard let (senderHex, senderPublicKey, text) = MessageEnvelope.parse(plaintext) else {
-                print("🔒 Decrypted OK, but envelope verification failed (bad signature or malformed envelope) — dropped.")
+                Log.lxmf.error("Decrypted IceNomad packet, but envelope verification failed (bad signature or malformed envelope) — dropped")
                 return
             }
-
-            print("🔓 Decrypted message from \(senderHex): \"\(text)\"")
 
             PeerStore.shared.recordDirectContact(
                 destinationHashHex: senderHex,
@@ -137,8 +185,79 @@ class InterfaceManager: ObservableObject {
             MessageStore.shared.receive(text: text, from: senderHex)
 
         } catch {
-            print("🔒 Decrypt FAILED (HMAC/AES error, meaning it likely wasn't actually encrypted to us, or is corrupt): \(error)")
+            Log.lxmf.error("IceNomad packet decrypt failed (HMAC/AES error — likely wasn't actually encrypted to us, or is corrupt): \(error)")
         }
+    }
+
+
+    /// Real LXMF messages don't carry the sender's public key — only a
+    /// 16-byte source hash — so we can only verify/accept a message from
+    /// someone whose announce we've already cached.
+    private func handleLXMFDataPacket(_ packet: ReticulumPacket) {
+
+        do {
+
+            let plaintext = try IdentityStore.shared.myIdentity.decrypt(packet.payload)
+
+            // Opportunistic (single-packet) LXMF wire format is
+            // source_hash(16) + signature(64) + payload — the
+            // destination_hash is NOT on the wire (real LXMF strips it
+            // since it's redundant with the packet's own addressing;
+            // RNS.LXMRouter.delivery_packet() reconstructs the full
+            // envelope as `packet.destination.hash + data` before
+            // parsing, which is exactly what parseOpportunistic does).
+            guard plaintext.count > 80 else {
+                Log.lxmf.error("Decrypted LXMF payload too short to be a valid message — dropped")
+                return
+            }
+
+            let sourceHash = Data(plaintext.prefix(16))
+            let sourceHex = sourceHash.hexString
+
+            guard let peer = PeerStore.shared.peers.first(where: { $0.destinationHashHex == sourceHex }) else {
+                Log.lxmf.error("LXMF message from \(sourceHex, privacy: .public), but no cached public key (no prior announce) — can't verify, dropped")
+                return
+            }
+
+            guard let message = LXMFMessage.parseOpportunistic(plaintext, myDestinationHash: LXMFDestination.myDestinationHash, senderPublicKey: peer.identityPublicKey) else {
+                Log.lxmf.error("LXMF message from \(sourceHex, privacy: .public) failed signature verification or parsing — dropped")
+                return
+            }
+
+            MessageStore.shared.receive(text: message.content, from: sourceHex)
+
+        } catch {
+            Log.lxmf.error("LXMF packet decrypt failed (HMAC/AES error — likely wasn't actually encrypted to us, or is corrupt): \(error)")
+        }
+    }
+
+
+    /// A message delivered via LXMF's DIRECT method, over a Link we
+    /// accepted (LinkManager.handleIncomingLinkRequest). Unlike
+    /// opportunistic delivery, the full envelope (including our own
+    /// destination_hash) is on the wire as-is — `__as_packet()`/
+    /// `__as_resource()` send `self.packed` unstripped for DIRECT.
+    private func deliverDirectLXMFMessage(_ fullEnvelope: Data) {
+
+        guard fullEnvelope.count > 96 else {
+            Log.lxmf.error("Decrypted LXMF (DIRECT) payload too short to be a valid message — dropped")
+            return
+        }
+
+        let sourceHash = Data(fullEnvelope.dropFirst(16).prefix(16))
+        let sourceHex = sourceHash.hexString
+
+        guard let peer = PeerStore.shared.peers.first(where: { $0.destinationHashHex == sourceHex }) else {
+            Log.lxmf.error("LXMF (DIRECT) message from \(sourceHex, privacy: .public), but no cached public key (no prior announce) — can't verify, dropped")
+            return
+        }
+
+        guard let message = LXMFMessage.parse(fullEnvelope, senderPublicKey: peer.identityPublicKey) else {
+            Log.lxmf.error("LXMF (DIRECT) message from \(sourceHex, privacy: .public) failed signature verification or parsing — dropped")
+            return
+        }
+
+        MessageStore.shared.receive(text: message.content, from: sourceHex)
     }
 
 
@@ -148,7 +267,7 @@ class InterfaceManager: ObservableObject {
 
         interfaces.removeAll()
 
-        print("Loading interfaces...")
+        Log.network.info("Loading interfaces...")
 
         let connections = ConnectionStorage.shared.load()
 
@@ -168,6 +287,18 @@ class InterfaceManager: ObservableObject {
                     port: connection.port
                 )
 
+                // Each interface gets its own parser — sharing one across
+                // multiple simultaneous byte streams would corrupt
+                // whichever frame was mid-assembly on the other stream.
+                let parser = PacketParser()
+
+                parser.onFrameReceived = { [weak self] frame in
+
+                    DispatchQueue.main.async {
+
+                        self?.handle(frame: frame, source: .tcpClient)
+                    }
+                }
 
                 tcp.onReceive = { [weak self] data in
 
@@ -175,7 +306,7 @@ class InterfaceManager: ObservableObject {
 
                         self?.receivedPacketCount += 1
 
-                        self?.packetParser.receive(data)
+                        parser.receive(data)
                     }
                 }
 
@@ -186,17 +317,34 @@ class InterfaceManager: ObservableObject {
 
                         self?.connectionStates[connection.name] = connected
 
-                        print(
-                            connected ?
-                            "🟢 \(connection.name) connected" :
-                            "🔴 \(connection.name) disconnected"
-                        )
+                        if connected {
+                            Log.network.info("\(connection.name, privacy: .public) connected")
+                        } else {
+                            Log.network.error("\(connection.name, privacy: .public) disconnected")
+                        }
 
                         if connected {
+
+                            self?.tcpInterfaceDescriptions[connection.name] =
+                                "TCPInterface[\(connection.name)/\(connection.address):\(connection.port)]"
+
                             // Let the network know we exist shortly after connecting.
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                                 self?.sendAnnounce()
                             }
+
+                            // Fixes the specific "cold start" case: a
+                            // fresh connection has no reverse-route
+                            // history yet upstream, so the very first
+                            // Link/message attempt right after connecting
+                            // needs this signalled immediately rather
+                            // than waiting for the next periodic tick.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                self?.sendSynthesizeTunnel(interfaceName: connection.name)
+                            }
+
+                        } else {
+                            self?.tcpInterfaceDescriptions.removeValue(forKey: connection.name)
                         }
                     }
                 }
@@ -226,7 +374,35 @@ class InterfaceManager: ObservableObject {
 
                         self?.receivedPacketCount += 1
 
-                        self?.packetParser.receive(data)
+                        // RNode's onReceive already hands us a single,
+                        // fully-unwrapped Reticulum packet (KISS framing
+                        // was the transport's own envelope, stripped by
+                        // RNodeInterface) — no HDLC extraction needed, just
+                        // the leading throwaway byte ReticulumFrame expects
+                        // in place of TCP's marker byte.
+                        let frame = ReticulumFrame(data: Data([0x00]) + data)
+                        self?.handle(frame: frame, source: .rNode)
+                    }
+                }
+
+
+                rnode.onStatusChanged = { [weak self] connected in
+
+                    DispatchQueue.main.async {
+
+                        self?.connectionStates[connection.name] = connected
+
+                        if connected {
+                            Log.network.info("\(connection.name, privacy: .public) connected")
+                        } else {
+                            Log.network.error("\(connection.name, privacy: .public) disconnected")
+                        }
+
+                        if connected {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                self?.sendAnnounce()
+                            }
+                        }
                     }
                 }
 
@@ -236,7 +412,7 @@ class InterfaceManager: ObservableObject {
         }
 
 
-        print("Loaded interfaces:", interfaces.count)
+        Log.network.info("Loaded \(self.interfaces.count) interface(s)")
     }
 
 
@@ -247,7 +423,7 @@ class InterfaceManager: ObservableObject {
 
         for interface in interfaces {
 
-            print("Starting:", interface.name)
+            Log.network.info("Starting interface \(interface.name, privacy: .public)")
 
             interface.start()
         }
@@ -268,7 +444,7 @@ class InterfaceManager: ObservableObject {
 
     func restartAll() {
 
-        print("Restarting interfaces...")
+        Log.network.info("Restarting interfaces...")
 
         stopAll()
 
@@ -290,7 +466,7 @@ class InterfaceManager: ObservableObject {
         let connectedInterfaces = interfaces.filter { $0.isConnected }
 
         guard !connectedInterfaces.isEmpty else {
-            print("⚠️ send() called with \(framedData.count) bytes, but no interfaces are connected — nothing was sent.")
+            Log.network.error("send() called with \(framedData.count) bytes, but no interfaces are connected — nothing was sent")
             return
         }
 
@@ -300,59 +476,138 @@ class InterfaceManager: ObservableObject {
     }
 
 
-    /// Builds and sends an ANNOUNCE for your own identity, with your
-    /// display name (from Settings) as app_data.
+    /// Builds and sends ANNOUNCEs for both destinations: our own
+    /// icenomad.chat one, and a real lxmf.delivery one (so genuine
+    /// NomadNet/Sideband clients can see and address you).
     func sendAnnounce() {
 
         let name = UserProfile.shared.displayName
-        let appData = Data(name.utf8)
 
-        guard let rawPacket = PacketBuilder.buildAnnouncePacket(appData: appData) else {
-            print("⚠️ Could not build announce packet — this means IdentityStore has no private key, which shouldn't happen.")
-            return
+        if let rawPacket = PacketBuilder.buildAnnouncePacket(
+            destinationHash: ReticulumDestination.myDestinationHash,
+            nameHash: ReticulumDestination.nameHash,
+            appData: Data(name.utf8)
+        ) {
+            let framed = PacketBuilder.hdlcFrame(rawPacket)
+            Log.reticulum.info("Announce out (IceNomad) as \"\(name, privacy: .public)\"")
+            send(framed)
+        } else {
+            Log.identity.fault("Could not build IceNomad announce packet — this means IdentityStore has no private key, which shouldn't happen")
         }
 
-        let framed = PacketBuilder.hdlcFrame(rawPacket)
-
-        print("🔔 ANNOUNCE OUT — as \"\(name)\", destination \(ReticulumDestination.myDestinationHashHex), \(rawPacket.count) raw bytes / \(framed.count) framed bytes")
-
-        send(framed)
+        if let rawPacket = PacketBuilder.buildAnnouncePacket(
+            destinationHash: LXMFDestination.myDestinationHash,
+            nameHash: LXMFDestination.nameHash,
+            appData: LXMFDestination.announceAppData(displayName: name)
+        ) {
+            let framed = PacketBuilder.hdlcFrame(rawPacket)
+            Log.lxmf.info("Announce out (LXMF) as \"\(name, privacy: .public)\"")
+            send(framed)
+        } else {
+            Log.lxmf.error("Could not build LXMF announce packet")
+        }
     }
 
 
-    /// Encrypts and sends a chat message to a peer whose public key is
-    /// already known (from a prior announce or direct message).
+    /// Re-signals "this TCP connection carries traffic for me" for one
+    /// named interface — see buildSynthesizeTunnelPacket's doc comment.
+    private func sendSynthesizeTunnel(interfaceName: String) {
+
+        guard connectionStates[interfaceName] == true,
+              let description = tcpInterfaceDescriptions[interfaceName],
+              let rawPacket = PacketBuilder.buildSynthesizeTunnelPacket(interfaceDescription: description)
+        else {
+            return
+        }
+
+        Log.network.debug("Tunnel synthesize for \(interfaceName, privacy: .public)")
+        send(PacketBuilder.hdlcFrame(rawPacket))
+    }
+
+
+    private func sendSynthesizeTunnelToAllConnected() {
+
+        for name in tcpInterfaceDescriptions.keys {
+            sendSynthesizeTunnel(interfaceName: name)
+        }
+    }
+
+
+    /// Encrypts and sends a real LXMF message to a peer whose public key
+    /// is already known (from a prior announce).
     func sendMessage(text: String, to destinationHashHex: String, recipientPublicKey: Data) -> Bool {
 
         guard let recipient = ReticulumIdentity(publicKeyBytes: recipientPublicKey) else {
-            print("✉️ MESSAGE OUT to \(destinationHashHex) FAILED — recipient public key (\(recipientPublicKey.count) bytes) is invalid.")
-            return false
-        }
-
-        guard let envelope = MessageEnvelope.build(text: text) else {
-            print("✉️ MESSAGE OUT to \(destinationHashHex) FAILED — could not build/sign the envelope.")
+            Log.lxmf.error("Message out to \(destinationHashHex, privacy: .public) FAILED — recipient public key (\(recipientPublicKey.count) bytes) is invalid")
             return false
         }
 
         guard let destinationHash = Data(hexString: destinationHashHex) else {
-            print("✉️ MESSAGE OUT to \(destinationHashHex) FAILED — that doesn't look like a valid hex destination hash.")
+            Log.lxmf.error("Message out to \(destinationHashHex, privacy: .public) FAILED — not a valid hex destination hash")
+            return false
+        }
+
+        guard let message = LXMFMessage.compose(to: destinationHash, content: text) else {
+            Log.lxmf.error("Message out to \(destinationHashHex, privacy: .public) FAILED — could not build/sign the LXMF message")
             return false
         }
 
         do {
 
-            let ciphertext = try recipient.encrypt(envelope)
-            let rawPacket = PacketBuilder.buildDataPacket(destinationHash: destinationHash, ciphertext: ciphertext)
+            let ciphertext = try recipient.encrypt(message.opportunisticPackedData)
+            let rawPacket = PacketBuilder.buildDataPacket(destinationHash: destinationHash, ciphertext: ciphertext, transportId: lastKnownTransportId)
             let framed = PacketBuilder.hdlcFrame(rawPacket)
-
-            print("✉️ MESSAGE OUT to \(destinationHashHex) — \(rawPacket.count) raw bytes / \(framed.count) framed bytes")
 
             send(framed)
             return true
 
         } catch {
-            print("✉️ MESSAGE OUT to \(destinationHashHex) FAILED — encryption threw: \(error)")
+            Log.lxmf.error("Message out to \(destinationHashHex, privacy: .public) FAILED — encryption threw: \(error)")
             return false
+        }
+    }
+
+
+    /// Sends an LXMF message via DIRECT method — establishes a Link and
+    /// pushes the full (unstripped) envelope over it, matching what real
+    /// LXMF clients use as their default/preferred delivery method.
+    /// Confirmed against a real LXMF listener that plain OPPORTUNISTIC
+    /// packets to this network don't arrive reliably, while DIRECT
+    /// delivery over a Link consistently does — reuses the same Link
+    /// infrastructure (with active path-resolution) already proven out
+    /// for NomadNet browsing.
+    func sendDirectMessage(text: String, to destinationHashHex: String, completion: @escaping (Bool) -> Void) {
+
+        guard let destinationHash = Data(hexString: destinationHashHex) else {
+            Log.lxmf.error("Message out (DIRECT) to \(destinationHashHex, privacy: .public) FAILED — not a valid hex destination hash")
+            completion(false)
+            return
+        }
+
+        guard let message = LXMFMessage.compose(to: destinationHash, content: text) else {
+            Log.lxmf.error("Message out (DIRECT) to \(destinationHashHex, privacy: .public) FAILED — could not build/sign the LXMF message")
+            completion(false)
+            return
+        }
+
+        LinkManager.shared.connect(to: destinationHashHex) { result in
+
+            switch result {
+
+            case .failure(let error):
+                Log.lxmf.notice("Message out (DIRECT) to \(destinationHashHex, privacy: .public) — link failed (\(String(describing: error))), falling back to opportunistic")
+                completion(false)
+
+            case .success(let link):
+
+                let succeeded = link.sendPayload(message.packedData)
+
+                if !succeeded {
+                    Log.lxmf.error("Message out (DIRECT) to \(destinationHashHex, privacy: .public) FAILED — link not active")
+                }
+
+                completion(succeeded)
+            }
         }
     }
 }
