@@ -15,11 +15,13 @@
 
 - 🐧 Native SwiftUI interface
 - 📡 TCP Client support
-- 📻 Native RNode (LoRa) connectivity
-- ❄️ Reticulum network integration
+- 📻 Native RNode (LoRa) connectivity, with Bluetooth pairing
+- ❄️ Reticulum network integration (announces, Links, real packet routing)
 - 🔐 Cryptographic identity management
-- 💬 LXMF messaging *(coming soon)*
-- 🌎 NomadNet browser *(planned)*
+- 💬 LXMF messaging — sending and receiving over a real Link, working reliably
+- 🌎 NomadNet browser — fetches and renders real pages *(rough around the edges — see status below)*
+- 📷 QR code sharing for your address
+- 🌗 Adaptive light/dark theme
 - 🚀 Live connection monitoring
 - ⚡ Mobile-first design
 
@@ -44,14 +46,14 @@ IceNomad is currently under active development.
 
 - ✅ Connection manager
 - ✅ TCP Client support
-- ✅ Native RNode configuration
+- ✅ Native RNode configuration and Bluetooth pairing
 - ✅ Identity management
 - ✅ Live interface status
 - ✅ Peer discovery
 - ✅ Announce handling
-- 🚸 LXMF messaging
-- 🚧 Reticulum protocol integration
-- 🚸 NomadNet browser
+- ✅ Reticulum protocol integration (real packet routing/relay addressing)
+- ✅ LXMF messaging — working reliably, both sending and receiving
+- 🚸 NomadNet browser — real pages load and render, but the experience is still buggy (page layout/navigation rough edges being worked out)
 
 ---
 
