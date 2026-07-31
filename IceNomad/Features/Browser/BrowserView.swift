@@ -125,6 +125,9 @@ struct BrowserView: View {
                         }
                         .background(Theme.background)
                         .scrollDismissesKeyboard(.immediately)
+                        .refreshable {
+                            browserState.refresh()
+                        }
                         .onChange(of: browserState.isLoading) { _, isLoading in
 
                             guard isLoading else { return }
@@ -291,7 +294,7 @@ struct BrowserView: View {
 
         peerStore.peers
             .filter(\.isNomadNetNode)
-            .sorted { $0.lastSeen > $1.lastSeen }
+            .sorted { peerStore.lastSeen(for: $0.destinationHashHex) > peerStore.lastSeen(for: $1.destinationHashHex) }
     }
 
 

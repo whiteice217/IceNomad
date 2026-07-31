@@ -124,6 +124,12 @@ struct DownloadsView: View {
                                         .font(.caption)
                                         .foregroundStyle(Theme.danger)
 
+                                } else if item.cancelled {
+
+                                    Text("Cancelled")
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.textSecondary)
+
                                 } else if item.isComplete {
 
                                     Text("Complete")
@@ -138,10 +144,25 @@ struct DownloadsView: View {
 
                             Spacer()
 
-                            if item.failed {
+                            if item.isActive {
+
+                                Button {
+                                    downloadManager.cancel(item.id)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(Theme.textSecondary)
+                                }
+                                .buttonStyle(.plain)
+
+                            } else if item.failed {
 
                                 Image(systemName: "exclamationmark.triangle.fill")
                                     .foregroundStyle(Theme.danger)
+
+                            } else if item.cancelled {
+
+                                Image(systemName: "slash.circle")
+                                    .foregroundStyle(Theme.textSecondary)
 
                             } else if item.isComplete {
 
@@ -158,6 +179,14 @@ struct DownloadsView: View {
 
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+
+                    Button("Clear") {
+                        downloadManager.clearFinished()
+                    }
+                    .disabled(!downloadManager.downloads.contains { !$0.isActive })
                 }
             }
         }

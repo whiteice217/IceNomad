@@ -16,11 +16,14 @@ import Combine
 struct DownloadItem: Identifiable {
 
     let id: UUID = UUID()
+    let destinationHashHex: String
     var filename: String
     var progress: Double
     var failed: Bool = false
+    var cancelled: Bool = false
 
-    var isComplete: Bool { progress >= 1.0 && !failed }
+    var isComplete: Bool { progress >= 1.0 && !failed && !cancelled }
+    var isActive: Bool { !isComplete && !failed && !cancelled }
 }
 
 
@@ -66,7 +69,7 @@ final class DownloadManager: ObservableObject {
         let hex = destinationHashHex.lowercased()
         let filename = suggestedFilename(from: path)
 
-        let item = DownloadItem(filename: filename, progress: 0)
+        let item = DownloadItem(destinationHashHex: hex, filename: filename, progress: 0)
         let id = item.id
 
         downloads.append(item)
@@ -113,6 +116,37 @@ final class DownloadManager: ObservableObject {
     }
 
 
+    /// Stops an in-flight download. Tears down the underlying Link so the
+    /// transfer actually stops consuming bandwidth (not just hiding it in
+    /// the UI) — same teardown `BrowserState.refresh()` already does when
+    /// abandoning a page load. Any progress/completion callback that
+    /// still lands after this (bytes already in flight when the Link
+    /// closed) is ignored — see the `cancelled` guards below — so it
+    /// can't silently resurrect a cancelled item as complete/failed.
+    func cancel(_ id: UUID) {
+
+        guard let index = downloads.firstIndex(where: { $0.id == id }), downloads[index].isActive else {
+            return
+        }
+
+        let hex = downloads[index].destinationHashHex
+
+        downloads[index].cancelled = true
+        activeDownloadDestinations.remove(hex)
+
+        LinkManager.shared.disconnect(from: hex)
+    }
+
+
+    /// Removes every finished (complete/failed/cancelled) entry — active
+    /// downloads are left alone, same as a normal browser's download list
+    /// only clearing what's actually done.
+    func clearFinished() {
+
+        downloads.removeAll { !$0.isActive }
+    }
+
+
     private func suggestedFilename(from path: String) -> String {
 
         let name = (path as NSString).lastPathComponent
@@ -122,7 +156,7 @@ final class DownloadManager: ObservableObject {
 
     private func updateProgress(_ id: UUID, progress: Double) {
 
-        guard let index = downloads.firstIndex(where: { $0.id == id }) else {
+        guard let index = downloads.firstIndex(where: { $0.id == id }), !downloads[index].cancelled else {
             return
         }
 
@@ -134,7 +168,7 @@ final class DownloadManager: ObservableObject {
 
         activeDownloadDestinations.remove(destination)
 
-        guard let index = downloads.firstIndex(where: { $0.id == id }) else {
+        guard let index = downloads.firstIndex(where: { $0.id == id }), !downloads[index].cancelled else {
             return
         }
 
@@ -146,7 +180,7 @@ final class DownloadManager: ObservableObject {
 
         activeDownloadDestinations.remove(destination)
 
-        guard let index = downloads.firstIndex(where: { $0.id == id }) else {
+        guard let index = downloads.firstIndex(where: { $0.id == id }), !downloads[index].cancelled else {
             return
         }
 

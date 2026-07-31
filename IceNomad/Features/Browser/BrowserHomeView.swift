@@ -45,26 +45,86 @@ struct BrowserHomeView: View {
 
     private var welcomeMessage: some View {
 
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 22) {
 
-            Text("IceNomad Browser")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(Theme.textPrimary)
+            VStack(spacing: 8) {
 
-            Text("Open the node list on the left to connect to a NomadNet node. Once connected, Home will jump to that node's /page/index.mu, and links on the page will navigate normally.")
-                .font(.subheadline)
-                .foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+                Text("IceNomad Browser")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Theme.textPrimary)
 
-            Text("Tap the star while browsing a page to save it here as a favorite.")
-                .font(.footnote)
-                .foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 4)
+                Text("Begin browsing by selecting the announce icon (\(Image(systemName: AppTab.announce.icon))) and choosing a node.")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity)
+
+            VStack(alignment: .leading, spacing: 4) {
+
+                Text("THE ADDRESS BAR")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .tracking(0.5)
+
+                Text("Shows the page's address: **node hash : path** — the node's destination hash, followed by the page it's serving. Most nodes default to `/page/index.mu`.")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+
+                Text("CONTROLS")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .tracking(0.5)
+
+                controlRow(
+                    icon: AppTab.announce.icon,
+                    text: "Shows any node that's announced itself, based on how many are kept — set from this Announce page, under **Keep Announces**."
+                )
+                controlRow(icon: "chevron.left", text: "Wander back to the previous page.")
+                controlRow(icon: "chevron.right", text: "Wander forward to a page you'd gone back from.")
+                controlRow(icon: "star", text: "Favorite the current page for later Wandering.")
+                controlRow(icon: "arrow.clockwise", text: "Reload the page — or just pull down to refresh.")
+                controlRow(icon: "xmark", text: "Stop the page from loading.")
+                controlRow(icon: "arrow.down.circle", text: "View active or past downloads — cancel one in progress, or clear finished ones from the list.")
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+
+                Text("ABOUT NOMADNET PAGES")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .tracking(0.5)
+
+                Text("NomadNet nodes serve pages written in **Micron** (`.mu`) — a lightweight markup in the spirit of an old BBS: plain text, simple formatting, and links to other pages, files, or people. Anyone running a node can publish one, and any NomadNet-compatible client (including IceNomad) can browse it.")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.horizontal, 8)
+    }
+
+
+    @ViewBuilder
+    private func controlRow(icon: String, text: String) -> some View {
+
+        HStack(alignment: .top, spacing: 10) {
+
+            Image(systemName: icon)
+                .font(.footnote)
+                .foregroundStyle(Theme.accent)
+                .frame(width: 20)
+
+            Text(LocalizedStringKey(text))
+                .font(.footnote)
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
 
