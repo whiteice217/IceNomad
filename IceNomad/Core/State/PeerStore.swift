@@ -14,6 +14,7 @@
 import Foundation
 import Combine
 import SwiftUI
+import OSLog
 
 
 struct Peer: Identifiable {
@@ -22,7 +23,6 @@ struct Peer: Identifiable {
 
     let destinationHashHex: String
     var displayName: String?
-    var lastSeen: Date
     var hopCount: UInt8?
     let nameHash: Data
     let identityPublicKey: Data
@@ -60,7 +60,16 @@ final class PeerStore: ObservableObject {
 
     static let announceLimitOptions = [10, 25, 75, 100, 250, 500]
     private static let maxAnnouncesKey = "peer_store_max_announces"
-    private static let defaultMaxAnnounces = 75
+    // A default of 75 was set before this app had ever been tested
+    // against a real, busy public relay — confirmed live (rns.icenomad.net,
+    // bridged to a wider mesh) sustaining roughly one *new distinct* real
+    // peer announcing per second. At that rate the old default was
+    // exceeded in about a minute of being connected, silently evicting
+    // your own other devices' entries before you'd ever get a chance to
+    // see them in the Announce tab — this looked exactly like "announces
+    // don't work," when the underlying networking was actually fine at
+    // every layer (verified via a live log stream, packet-by-packet).
+    private static let defaultMaxAnnounces = 500
 
     private init() {
 
@@ -70,6 +79,24 @@ final class PeerStore: ObservableObject {
 
 
     @Published private(set) var peers: [Peer] = []
+
+    /// Updated on *every* announce, including repeats that change
+    /// nothing else — kept out of the `@Published` array on purpose.
+    /// Any mutation of `peers` (even a single field via subscript)
+    /// republishes the whole array, which SwiftUI then re-filters/
+    /// re-sorts/redraws — on a busy relay (confirmed live: ~1 new
+    /// distinct real peer announcing per second) that happened dozens
+    /// of times a minute even when literally nothing about a peer had
+    /// changed. `upsert` still needs an accurate "last seen" for
+    /// eviction ordering, so it's tracked here instead, silently — the
+    /// displayed "X ago" text updates on its own via SwiftUI's built-in
+    /// relative-date formatting regardless of whether the parent view
+    /// re-renders, so no publish is needed just to keep that fresh.
+    private var lastSeenByHex: [String: Date] = [:]
+
+    func lastSeen(for hex: String) -> Date {
+        lastSeenByHex[hex] ?? .distantPast
+    }
 
     /// Caps how many announced peers we keep around — oldest (by
     /// lastSeen) are evicted first once this is exceeded.
@@ -119,9 +146,34 @@ final class PeerStore: ObservableObject {
         let hex = announce.destinationHashHex
         let now = Date()
 
+        // Debug-level (hidden unless explicitly requested with `log
+        // show --debug`/`log stream --level debug`) — a successful
+        // announce receipt was previously silent by design ("arrives
+        // constantly, only failures are worth logging"), which made it
+        // impossible to tell "no announce arrived" apart from "arrived
+        // and got silently dropped/miscategorized somewhere after this."
+        Log.reticulum.debug("Announce IN from \(hex, privacy: .public) name=\(announce.displayName ?? "nil", privacy: .public) nameHash=\(announce.nameHash.hexString, privacy: .public) hops=\(hopCount.map(String.init) ?? "nil", privacy: .public) via=\(String(describing: source), privacy: .public)")
+
+        lastSeenByHex[hex] = now
+
         if let existingIndex = index[hex] {
 
-            peers[existingIndex].lastSeen = now
+            // Compare against what we already have — a busy relay
+            // re-announces the same peer with the same info constantly,
+            // and touching `peers` (even just `lastSeen`, which now
+            // lives in `lastSeenByHex` instead) for a no-op update would
+            // force every observing view to redraw for nothing. Only
+            // peers whose hop count, source interface, or name actually
+            // changed are worth republishing.
+            let existing = peers[existingIndex]
+            let hopChanged = hopCount != existing.hopCount
+            let sourceChanged = source != existing.lastInterfaceType
+            let nameChanged = announce.displayName != nil && announce.displayName != existing.displayName
+
+            guard hopChanged || sourceChanged || nameChanged else {
+                return
+            }
+
             peers[existingIndex].hopCount = hopCount
             peers[existingIndex].lastInterfaceType = source
 
@@ -134,7 +186,6 @@ final class PeerStore: ObservableObject {
             let peer = Peer(
                 destinationHashHex: hex,
                 displayName: announce.displayName,
-                lastSeen: now,
                 hopCount: hopCount,
                 nameHash: announce.nameHash,
                 identityPublicKey: announce.encryptionPublicKey + announce.signingPublicKey,
@@ -157,16 +208,13 @@ final class PeerStore: ObservableObject {
 
         let now = Date()
 
-        if let existingIndex = index[destinationHashHex] {
+        lastSeenByHex[destinationHashHex] = now
 
-            peers[existingIndex].lastSeen = now
-
-        } else {
+        if index[destinationHashHex] == nil {
 
             let peer = Peer(
                 destinationHashHex: destinationHashHex,
                 displayName: nil,
-                lastSeen: now,
                 hopCount: nil,
                 nameHash: ReticulumDestination.nameHash,
                 identityPublicKey: identityPublicKey,
@@ -184,6 +232,7 @@ final class PeerStore: ObservableObject {
 
         peers.removeAll()
         index.removeAll()
+        lastSeenByHex.removeAll()
     }
 
 
@@ -240,7 +289,11 @@ final class PeerStore: ObservableObject {
     /// Evicts the oldest (by lastSeen) announced peers once over the
     /// limit — saved contacts and pinned (actively-connecting-to) peers
     /// are never evicted, since losing their cached public key would
-    /// silently break messaging or connecting to them.
+    /// silently break messaging or connecting to them. Sorts by
+    /// `lastSeenByHex`, not any field on `Peer` itself — a peer can be
+    /// re-announcing constantly with nothing else changing (see
+    /// `upsert`), so `Peer` itself carries no lastSeen of its own
+    /// anymore; the side table is the only accurate record of recency.
     private func enforceLimit() {
 
         guard peers.count > maxAnnounces else {
@@ -250,7 +303,7 @@ final class PeerStore: ObservableObject {
         let excess = peers.count - maxAnnounces
         let evictionCandidates = peers
             .filter { !ContactStore.shared.isContact($0.destinationHashHex) && !pinnedHashes.contains($0.destinationHashHex) }
-            .sorted { $0.lastSeen < $1.lastSeen }
+            .sorted { lastSeen(for: $0.destinationHashHex) < lastSeen(for: $1.destinationHashHex) }
 
         let hexesToEvict = Set(evictionCandidates.prefix(excess).map { $0.destinationHashHex })
 
@@ -259,6 +312,9 @@ final class PeerStore: ObservableObject {
         }
 
         peers.removeAll { hexesToEvict.contains($0.destinationHashHex) }
+        for hex in hexesToEvict {
+            lastSeenByHex.removeValue(forKey: hex)
+        }
 
         index.removeAll()
         for (i, peer) in peers.enumerated() {

@@ -128,7 +128,7 @@ struct MUSitesDropdown: View {
 
                 Spacer(minLength: 8)
 
-                Text(site.lastSeen, style: .relative)
+                Text(PeerStore.shared.lastSeen(for: site.destinationHashHex), style: .relative)
                     .font(.caption2)
                     .foregroundStyle(Theme.textSecondary)
             }
@@ -145,7 +145,7 @@ struct MUSitesDropdown: View {
         switch sortOption {
 
         case .time:
-            return list.sorted { $0.lastSeen > $1.lastSeen }
+            return list.sorted { PeerStore.shared.lastSeen(for: $0.destinationHashHex) > PeerStore.shared.lastSeen(for: $1.destinationHashHex) }
 
         case .hops:
             return list.sorted { ($0.hopCount ?? .max) < ($1.hopCount ?? .max) }

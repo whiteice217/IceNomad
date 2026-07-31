@@ -191,8 +191,16 @@ class InterfaceManager: ObservableObject {
 
 
     /// Real LXMF messages don't carry the sender's public key — only a
-    /// 16-byte source hash — so we can only verify/accept a message from
-    /// someone whose announce we've already cached.
+    /// 16-byte source hash — so verifying one needs the sender's
+    /// identity already resolved, from either a cached announce or (if
+    /// we don't have one yet) actively asking the network for it, same
+    /// as `PeerStore.resolveIdentity` already does before connecting to
+    /// someone new. A message from someone we haven't directly heard
+    /// announce yet is a completely normal occurrence — their announce
+    /// may just not have reached us yet — not a reason to give up
+    /// immediately (confirmed this was silently dropping real, valid
+    /// messages: the sender's Link was accepted fine, only the message
+    /// itself got rejected here).
     private func handleLXMFDataPacket(_ packet: ReticulumPacket) {
 
         do {
@@ -214,17 +222,17 @@ class InterfaceManager: ObservableObject {
             let sourceHash = Data(plaintext.prefix(16))
             let sourceHex = sourceHash.hexString
 
-            guard let peer = PeerStore.shared.peers.first(where: { $0.destinationHashHex == sourceHex }) else {
-                Log.lxmf.error("LXMF message from \(sourceHex, privacy: .public), but no cached public key (no prior announce) — can't verify, dropped")
-                return
-            }
+            resolveSenderThen(sourceHex) { [weak self] senderPublicKey in
 
-            guard let message = LXMFMessage.parseOpportunistic(plaintext, myDestinationHash: LXMFDestination.myDestinationHash, senderPublicKey: peer.identityPublicKey) else {
-                Log.lxmf.error("LXMF message from \(sourceHex, privacy: .public) failed signature verification or parsing — dropped")
-                return
-            }
+                guard let self else { return }
 
-            MessageStore.shared.receive(text: message.content, from: sourceHex)
+                guard let message = LXMFMessage.parseOpportunistic(plaintext, myDestinationHash: LXMFDestination.myDestinationHash, senderPublicKey: senderPublicKey) else {
+                    Log.lxmf.error("LXMF message from \(sourceHex, privacy: .public) failed signature verification or parsing — dropped")
+                    return
+                }
+
+                MessageStore.shared.receive(text: message.content, from: sourceHex)
+            }
 
         } catch {
             Log.lxmf.error("LXMF packet decrypt failed (HMAC/AES error — likely wasn't actually encrypted to us, or is corrupt): \(error)")
@@ -247,17 +255,42 @@ class InterfaceManager: ObservableObject {
         let sourceHash = Data(fullEnvelope.dropFirst(16).prefix(16))
         let sourceHex = sourceHash.hexString
 
-        guard let peer = PeerStore.shared.peers.first(where: { $0.destinationHashHex == sourceHex }) else {
-            Log.lxmf.error("LXMF (DIRECT) message from \(sourceHex, privacy: .public), but no cached public key (no prior announce) — can't verify, dropped")
+        resolveSenderThen(sourceHex) { senderPublicKey in
+
+            guard let message = LXMFMessage.parse(fullEnvelope, senderPublicKey: senderPublicKey) else {
+                Log.lxmf.error("LXMF (DIRECT) message from \(sourceHex, privacy: .public) failed signature verification or parsing — dropped")
+                return
+            }
+
+            MessageStore.shared.receive(text: message.content, from: sourceHex)
+        }
+    }
+
+
+    /// Shared by both delivery paths above: use the sender's cached
+    /// identity if we already have it, otherwise actively resolve it
+    /// (PATH_REQUEST + poll, same mechanism `PeerStore.resolveIdentity`
+    /// already uses elsewhere) before calling back — instead of
+    /// dropping every message from a sender we haven't happened to
+    /// cache an announce from yet.
+    private func resolveSenderThen(_ sourceHex: String, _ onResolved: @escaping (Data) -> Void) {
+
+        if let peer = PeerStore.shared.peers.first(where: { $0.destinationHashHex == sourceHex }) {
+            onResolved(peer.identityPublicKey)
             return
         }
 
-        guard let message = LXMFMessage.parse(fullEnvelope, senderPublicKey: peer.identityPublicKey) else {
-            Log.lxmf.error("LXMF (DIRECT) message from \(sourceHex, privacy: .public) failed signature verification or parsing — dropped")
-            return
-        }
+        Log.lxmf.info("LXMF message from \(sourceHex, privacy: .public) — no cached identity yet, resolving before verifying")
 
-        MessageStore.shared.receive(text: message.content, from: sourceHex)
+        PeerStore.shared.resolveIdentity(for: sourceHex) { peer in
+
+            guard let peer else {
+                Log.lxmf.error("LXMF message from \(sourceHex, privacy: .public) — identity resolution timed out, dropped")
+                return
+            }
+
+            onResolved(peer.identityPublicKey)
+        }
     }
 
 

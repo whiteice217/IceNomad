@@ -101,15 +101,52 @@ struct AnnouncePacket {
 
 
     /// Best-effort human-readable name from app_data. Reticulum does not
-    /// define a universal format for app_data — it's app-specific — so
-    /// this is a guess (valid UTF-8 text), not a guaranteed display name.
+    /// define a universal format for app_data — it's app-specific.
+    /// LXMF (`lxmf.delivery`) announces are the one case with a real,
+    /// fixed format: msgpack `[name (bin), stamp_cost?, features?]` (see
+    /// `LXMFDestination.announceAppData`) — a plain UTF-8 decode of that
+    /// raw msgpack-framed data fails (or produces garbage) for every LXMF
+    /// peer, ours included, which is why every LXMF entry in Announce was
+    /// showing up "Unnamed." Everything else IceNomad announces
+    /// (`icenomad.chat`) or has seen in the wild (real NomadNet node
+    /// announces) uses plain UTF-8 text, so that path is unchanged.
     var displayName: String? {
 
         guard !appData.isEmpty else {
             return nil
         }
 
+        if nameHash == LXMFDestination.nameHash {
+            return Self.lxmfDisplayName(fromAppData: appData)
+        }
+
         guard let text = String(data: appData, encoding: .utf8) else {
+            return nil
+        }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+
+    private static func lxmfDisplayName(fromAppData appData: Data) -> String? {
+
+        guard let value = try? MsgpackValue.decode(appData),
+              case .array(let elements) = value,
+              let first = elements.first
+        else {
+            return nil
+        }
+
+        let nameData: Data?
+
+        switch first {
+        case .binary(let data): nameData = data
+        case .string(let string): nameData = Data(string.utf8)
+        default: nameData = nil
+        }
+
+        guard let nameData, let text = String(data: nameData, encoding: .utf8) else {
             return nil
         }
 

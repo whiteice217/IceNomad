@@ -60,6 +60,7 @@ struct AnnounceView: View {
 
     @ObservedObject private var peerStore = PeerStore.shared
     @ObservedObject private var contactStore = ContactStore.shared
+    @ObservedObject private var interfaceManager = InterfaceManager.shared
 
     @State private var contactsExpanded = true
     @State private var unnamedExpanded = false
@@ -67,6 +68,7 @@ struct AnnounceView: View {
     @State private var sortOption: PeerSortOption = .lastHeard
     @State private var scope: PeerScope = .lxmf
     @State private var searchText = ""
+    @State private var didSendAnnounce = false
 
     var body: some View {
         NavigationStack {
@@ -171,6 +173,41 @@ struct AnnounceView: View {
                 ChatView(peerHashHex: hex)
             }
             .toolbar {
+
+                // Moved here from Settings — this is where announcing
+                // and controlling how many get kept actually belongs;
+                // Settings still has "Your Identity" (the name that goes
+                // out in the announce), just not the trigger/history knob.
+                ToolbarItem(placement: .topBarLeading) {
+
+                    Menu {
+
+                        Button {
+
+                            interfaceManager.sendAnnounce()
+                            didSendAnnounce = true
+
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                didSendAnnounce = false
+                            }
+
+                        } label: {
+                            Label("Send Announce Now", systemImage: "megaphone")
+                        }
+
+                        Picker("Keep Announces", selection: $peerStore.maxAnnounces) {
+
+                            ForEach(PeerStore.announceLimitOptions, id: \.self) { limit in
+                                Text("\(limit)").tag(limit)
+                            }
+                        }
+
+                    } label: {
+                        Image(systemName: didSendAnnounce ? "checkmark.circle.fill" : "megaphone")
+                            .foregroundStyle(didSendAnnounce ? Theme.success : Theme.textPrimary)
+                    }
+                }
 
                 ToolbarItem(placement: .topBarTrailing) {
 
@@ -368,7 +405,7 @@ struct AnnounceView: View {
                     Label("\(hops) hop\(hops == 1 ? "" : "s")", systemImage: "arrow.triangle.branch")
                 }
 
-                Text(peer.lastSeen, style: .relative)
+                Text(peerStore.lastSeen(for: peer.destinationHashHex), style: .relative)
             }
             .font(.caption2)
             .foregroundStyle(Theme.textSecondary)
@@ -396,7 +433,7 @@ struct AnnounceView: View {
         switch sortOption {
 
         case .lastHeard:
-            return list.sorted { $0.lastSeen > $1.lastSeen }
+            return list.sorted { peerStore.lastSeen(for: $0.destinationHashHex) > peerStore.lastSeen(for: $1.destinationHashHex) }
 
         case .alphabetical:
             return list.sorted {
