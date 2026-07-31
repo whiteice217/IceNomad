@@ -64,6 +64,20 @@ final class BrowserState: ObservableObject {
     }
 
 
+    /// Cancels an in-flight page load without navigating anywhere — the
+    /// underlying request may still complete on the wire, but its result
+    /// is ignored (a fresh loadToken makes it stale) and the UI stops
+    /// showing a loading state.
+    func cancelLoad() {
+
+        guard isLoading, let current else { return }
+
+        loadToken = UUID()
+        isLoading = false
+        content = BrowserState.stoppedContent(for: current)
+    }
+
+
     func goHome() {
 
         guard let hex = current?.destinationHashHex else { return }
@@ -151,7 +165,14 @@ final class BrowserState: ObservableObject {
 
     private func loadPage(for ref: PageRef) {
 
-        if let connectedDestinationHashHex, connectedDestinationHashHex != ref.destinationHashHex {
+        if let connectedDestinationHashHex, connectedDestinationHashHex != ref.destinationHashHex,
+           !DownloadManager.shared.isDownloading(from: connectedDestinationHashHex) {
+            // A download in flight against the node we're leaving keeps
+            // its Link alive — tearing it down here would kill a transfer
+            // the user can no longer see but still expects to finish in
+            // the background. The link is simply left open in that case;
+            // it'll close on its own once the download completes and
+            // something else navigates away from that node again.
             LinkManager.shared.disconnect(from: connectedDestinationHashHex)
             PeerStore.shared.unpin(connectedDestinationHashHex)
         }
@@ -232,6 +253,18 @@ final class BrowserState: ObservableObject {
         >Loading…
 
         Fetching `!\(ref.path)`! from \(ref.destinationHashHex).
+        """
+    }
+
+
+    private static func stoppedContent(for ref: PageRef) -> String {
+
+        """
+        >Stopped
+
+        Loading `!\(ref.path)`! was stopped.
+
+        `!Node:`! \(ref.destinationHashHex)
         """
     }
 

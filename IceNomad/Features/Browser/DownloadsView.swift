@@ -4,6 +4,52 @@
 //
 
 import SwiftUI
+import UIKit
+
+// MARK: - Document export (save-location picker)
+
+/// Wraps UIDocumentPickerViewController's export flow so a finished
+/// download can be renamed and saved anywhere the user picks (Files,
+/// iCloud Drive, a third-party provider) — SwiftUI's own `.fileExporter`
+/// needs a `FileDocument`-conforming type, which is unnecessary ceremony
+/// for a file that already exists on disk as raw bytes; this exports the
+/// existing temp file directly, same as Safari's download-complete flow.
+struct DocumentExporterView: UIViewControllerRepresentable {
+
+    let url: URL
+    let onFinish: () -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+
+        let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onFinish: onFinish)
+    }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+
+        let onFinish: () -> Void
+
+        init(onFinish: @escaping () -> Void) {
+            self.onFinish = onFinish
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            onFinish()
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onFinish()
+        }
+    }
+}
+
 
 // MARK: - Toolbar Button
 
@@ -63,7 +109,7 @@ struct DownloadsView: View {
 
                 } else {
 
-                    ForEach(downloadManager.downloads) { item in
+                    ForEach(downloadManager.downloads.reversed()) { item in
 
                         HStack {
 
@@ -72,7 +118,13 @@ struct DownloadsView: View {
                                 Text(item.filename)
                                     .font(.subheadline)
 
-                                if item.isComplete {
+                                if item.failed {
+
+                                    Text("Failed")
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.danger)
+
+                                } else if item.isComplete {
 
                                     Text("Complete")
                                         .font(.caption)
@@ -86,7 +138,12 @@ struct DownloadsView: View {
 
                             Spacer()
 
-                            if item.isComplete {
+                            if item.failed {
+
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(Theme.danger)
+
+                            } else if item.isComplete {
 
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(Theme.success)
@@ -94,17 +151,6 @@ struct DownloadsView: View {
                         }
                         .padding(.vertical, 2)
                     }
-                }
-
-                Section {
-
-                    Button("Simulate a Download") {
-                        downloadManager.simulateDownload(named: "example-file.txt")
-                    }
-
-                } footer: {
-
-                    Text("Real downloads need file transfer over an established Link, same as page fetching — this button lets you test the UI until that exists.")
                 }
             }
             .navigationTitle("Downloads")

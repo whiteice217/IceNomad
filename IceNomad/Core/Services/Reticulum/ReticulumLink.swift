@@ -78,6 +78,7 @@ final class ReticulumLink {
     var onIncomingPayload: ((Data) -> Void)?
 
     private var pendingRequests: [Data: (Result<Data, LinkError>) -> Void] = [:]
+    private var pendingProgressHandlers: [Data: (Double) -> Void] = [:] // keyed by request_id
     private var pendingResourceReceivers: [Data: ResourceReceiver] = [:] // keyed by request_id
     /// Resource(s) pushed to us unsolicited on an accepted link — no
     /// request_id to key by, so keyed by the resource's own hash instead.
@@ -312,7 +313,13 @@ final class ReticulumLink {
     /// Sends a REQUEST over the link. `completion` fires exactly once,
     /// either with the assembled response bytes or a failure.
     @discardableResult
-    func request(path: String, data: MsgpackValue = .null, timeout: TimeInterval = 20, completion: @escaping (Result<Data, LinkError>) -> Void) -> Bool {
+    func request(
+        path: String,
+        data: MsgpackValue = .null,
+        timeout: TimeInterval = 20,
+        onProgress: ((Double) -> Void)? = nil,
+        completion: @escaping (Result<Data, LinkError>) -> Void
+    ) -> Bool {
 
         guard status == .active else {
             completion(.failure(.notActive))
@@ -336,6 +343,10 @@ final class ReticulumLink {
 
         pendingRequests[requestId] = completion
 
+        if let onProgress {
+            pendingProgressHandlers[requestId] = onProgress
+        }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
 
             guard let self, let stillPending = self.pendingRequests[requestId] else {
@@ -343,6 +354,7 @@ final class ReticulumLink {
             }
 
             self.pendingRequests.removeValue(forKey: requestId)
+            self.pendingProgressHandlers.removeValue(forKey: requestId)
             self.pendingResourceReceivers.removeValue(forKey: requestId)
             stillPending(.failure(.notActive))
         }
@@ -418,14 +430,25 @@ final class ReticulumLink {
             return
         }
 
+        pendingProgressHandlers.removeValue(forKey: requestId)
         pendingResourceReceivers.removeValue(forKey: requestId)
 
-        guard case .binary(let responseBytes) = elements[1] else {
-            completion(.failure(.notActive))
+        if case .binary(let responseBytes) = elements[1] {
+            completion(.success(responseBytes))
             return
         }
 
-        completion(.success(responseBytes))
+        // A single-packet file-download response carries `[filename,
+        // filedata]` as the response value itself (real NomadNet's
+        // Browser.download_file single-packet case), rather than a plain
+        // binary blob — the caller derives the filename from the request
+        // path instead (see DownloadManager), so just unwrap the data here.
+        if case .array(let inner) = elements[1], inner.count >= 2, case .binary(let fileData) = inner[1] {
+            completion(.success(fileData))
+            return
+        }
+
+        completion(.failure(.notActive))
     }
 
 
@@ -440,6 +463,7 @@ final class ReticulumLink {
 
             let receiver = ResourceReceiver(advertisement: adv, link: self)
             pendingResourceReceivers[requestId] = receiver
+            receiver.onProgress = pendingProgressHandlers[requestId]
 
             receiver.onComplete = { [weak self] result in
 
@@ -448,6 +472,7 @@ final class ReticulumLink {
                 }
 
                 self.pendingRequests.removeValue(forKey: requestId)
+                self.pendingProgressHandlers.removeValue(forKey: requestId)
                 self.pendingResourceReceivers.removeValue(forKey: requestId)
 
                 switch result {

@@ -122,6 +122,11 @@ final class ResourceReceiver {
     private var isCancelled = false
 
     var onComplete: ((Result<Data, ResourceError>) -> Void)?
+    /// Fires as parts arrive — fraction of `partCount` received so far.
+    /// Nothing currently drives progress UI off the small-response path
+    /// (arrives instantly, one packet), only genuinely multi-part
+    /// transfers report incremental progress here.
+    var onProgress: ((Double) -> Void)?
 
     enum ResourceError: Error {
         case cancelled
@@ -241,6 +246,8 @@ final class ResourceReceiver {
                 }
             }
         }
+
+        onProgress?(Double(receivedCount) / Double(max(partCount, 1)))
 
         if receivedCount == partCount {
             assemble()
