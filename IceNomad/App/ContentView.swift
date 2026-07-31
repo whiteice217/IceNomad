@@ -43,35 +43,47 @@ struct ContentView: View {
 
     @State private var selectedTab: AppTab = .connections
 
+    /// Set by BrowserView when an `lxmf@<hash>` Micron link is tapped —
+    /// MessagesView observes this and navigates straight to that
+    /// conversation. Lives here (alongside selectedTab) since Browser and
+    /// Messages are sibling tabs with no other shared state.
+    @State private var pendingChatHex: String?
+
+    /// Set by AnnounceView's "Browse" swipe action — BrowserView observes
+    /// this and connects to that node, the reverse direction of
+    /// pendingChatHex above. Replaces the old in-Browser node drawer: node
+    /// selection now happens from the Announce tab instead of a popup.
+    @State private var pendingBrowseHex: String?
+
     var body: some View {
 
         TabView(selection: $selectedTab) {
 
-            ConnectionsView()
+            ConnectionsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, pendingBrowseHex: $pendingBrowseHex)
                 .tabItem {
                     Label(AppTab.connections.label, systemImage: AppTab.connections.icon)
                 }
                 .tag(AppTab.connections)
 
-            AnnounceView()
+            AnnounceView(selectedTab: $selectedTab, pendingBrowseHex: $pendingBrowseHex)
                 .tabItem {
                     Label(AppTab.announce.label, systemImage: AppTab.announce.icon)
                 }
                 .tag(AppTab.announce)
 
-            MessagesView()
+            MessagesView(pendingChatHex: $pendingChatHex)
                 .tabItem {
                     Label(AppTab.messages.label, systemImage: AppTab.messages.icon)
                 }
                 .tag(AppTab.messages)
 
-            BrowserView(selectedTab: $selectedTab)
+            BrowserView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, pendingBrowseHex: $pendingBrowseHex)
                 .tabItem {
                     Label(AppTab.browser.label, systemImage: AppTab.browser.icon)
                 }
                 .tag(AppTab.browser)
 
-            SettingsView()
+            SettingsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex)
                 .tabItem {
                     Label(AppTab.settings.label, systemImage: AppTab.settings.icon)
                 }

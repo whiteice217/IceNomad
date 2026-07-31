@@ -41,6 +41,16 @@ struct Peer: Identifiable {
         case nil: return nil
         }
     }
+
+    /// An announce's `nameHash` is a truncated hash of the destination's
+    /// full aspect name — every peer on a shared public network isn't
+    /// necessarily running IceNomad or even Reticulum-flavored LXMF/
+    /// NomadNet at all, so these two are genuine *positive* checks
+    /// against each protocol's real expected name hash (see
+    /// NomadNetNode.expectedNameHash / LXMFDestination.nameHash), not
+    /// just "isn't the other one" — a peer can be neither.
+    var isNomadNetNode: Bool { NomadNetNode.isNode(self) }
+    var isLXMFPeer: Bool { nameHash == LXMFDestination.nameHash }
 }
 
 

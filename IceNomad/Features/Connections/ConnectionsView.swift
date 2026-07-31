@@ -107,6 +107,18 @@ struct Connection: Identifiable, Codable {
     var isConnected: Bool = false
 }
 
+/// A pre-filled TCP option shown (grayed out, tap to fill the form rather
+/// than added silently) on first boot before the user has configured
+/// anything — otherwise a brand new user faces a blank list with no idea
+/// what a real address/port even looks like.
+struct SuggestedConnection: Identifiable {
+    let id = UUID()
+    let name: String
+    let address: String
+    let port: String
+    var isRecommended: Bool = false
+}
+
 // MARK: - State
 
 enum AddState: Equatable {
@@ -119,13 +131,26 @@ enum AddState: Equatable {
 // MARK: - View
 
 struct ConnectionsView: View {
-    
+
+    @Binding var selectedTab: AppTab
+    /// Set after a successful scan resolves to an LXMF address —
+    /// MessagesView observes this the same way it does for a Micron
+    /// `lxmf@hash` link tap.
+    @Binding var pendingChatHex: String?
+    /// Set after a successful scan resolves to a NomadNet page — same
+    /// cross-tab hint BrowserView already observes for the Announce
+    /// tab's "Browse" swipe action.
+    @Binding var pendingBrowseHex: String?
+
     @State private var connections: [Connection] = ConnectionStorage.shared.load()
     @State private var addState: AddState = .idle
     @ObservedObject private var interfaceManager = InterfaceManager.shared
     @State private var isRefreshing = false
     @State private var isShowingRNodePairing = false
     @State private var isShowingAddressQRCode = false
+    @State private var isShowingScanner = false
+    @State private var pendingScannedCode: ScannedCode?
+    @State private var scanErrorMessage: String?
     
     // TCP
     @State private var name = ""
@@ -134,6 +159,22 @@ struct ConnectionsView: View {
     
     // RNode
     @State private var rnode = RNodeConfig()
+
+    /// Shown only while the user has no TCP client configured yet —
+    /// tapping one pre-fills the TCP form rather than adding silently,
+    /// so the user still confirms with Save. Beyond IceNomad's own
+    /// (recommended, listed first), these are real community-run public
+    /// Reticulum hubs pulled from the live directory at
+    /// directory.rns.recipes — verify that list again before assuming
+    /// any of these are still up if a future session revisits this,
+    /// since they're run by other people, not IceNomad.
+    private let suggestedConnections: [SuggestedConnection] = [
+        SuggestedConnection(name: "IceNomad Public Relay", address: "rns.icenomad.net", port: "4242", isRecommended: true),
+        SuggestedConnection(name: "RMAP", address: "rmap.world", port: "4242"),
+        SuggestedConnection(name: "Sydney RNS", address: "sydney.reticulum.au", port: "4242"),
+        SuggestedConnection(name: "Birdsnet BR", address: "rns.birdsnet.com.br", port: "4242"),
+        SuggestedConnection(name: "Inertia.Chat", address: "use.inertia.chat", port: "4242"),
+    ]
     
     var body: some View {
         
@@ -141,15 +182,15 @@ struct ConnectionsView: View {
 
             VStack {
 
-                myAddressesCard
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-
                 if connections.isEmpty {
 
                     ScrollView {
 
                         VStack(spacing: 20) {
+
+                            myAddressesCard
+                                .padding(.horizontal)
+                                .padding(.top, 8)
 
                             Image(systemName: "antenna.radiowaves.left.and.right")
                                 .font(.system(size: 48))
@@ -189,6 +230,22 @@ struct ConnectionsView: View {
                             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                             .padding(.horizontal)
 
+                            if !suggestedConnections.isEmpty {
+
+                                VStack(alignment: .leading, spacing: 8) {
+
+                                    Text("Quick Start")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(Theme.textSecondary)
+                                        .padding(.horizontal)
+
+                                    ForEach(suggestedConnections) { suggestion in
+                                        suggestedConnectionRow(suggestion)
+                                            .padding(.horizontal)
+                                    }
+                                }
+                            }
+
                             Button {
                                 addState = .choosingType
                             } label: {
@@ -205,18 +262,56 @@ struct ConnectionsView: View {
                                 Divider()
                                 addFlowView
                             }
+
+                            // First-run screen — the natural place to
+                            // mention this is a hobby project someone
+                            // built and maintains out of pocket, for
+                            // anyone who wants to help keep it going, and
+                            // that bug reports have a real place to land.
+                            VStack(spacing: 4) {
+
+                                Link(destination: URL(string: "https://github.com/whiteice217/IceNomad")!) {
+
+                                    Label("Enjoying IceNomad? Feel free to donate", systemImage: "heart.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.textSecondary)
+                                }
+
+                                Link(destination: URL(string: "https://github.com/whiteice217/IceNomad/issues")!) {
+
+                                    Label("Found a bug? Report it on GitHub", systemImage: "ladybug")
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.textSecondary)
+                                }
+                            }
+                            .padding(.top, 4)
                         }
                         .padding(.bottom, 24)
                     }
 
                 } else {
-                    
-                    List(connections) { conn in
-                        
+
+                    List {
+
+                        Section {
+                            myAddressesCard
+                        }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+
+                        ForEach(connections) { conn in
+
+                        // A per-row Menu instead of .swipeActions — a
+                        // swipe gesture doesn't exist on a Mac trackpad
+                        // click, confirmed not working there. Tap/click
+                        // on the ellipsis behaves the same on both.
+                        HStack(alignment: .top, spacing: 8) {
+
                         VStack(alignment: .leading, spacing: 8) {
-                            
+
                             HStack(spacing: 8) {
-                                
+
                                 Circle()
                                     .fill(
                                         interfaceManager.interfaces.contains {
@@ -226,17 +321,17 @@ struct ConnectionsView: View {
                                         : Theme.danger
                                     )
                                     .frame(width: 10, height: 10)
-                                
+
                                 Text(conn.name)
                                     .font(.headline)
                             }
-                            
+
                             switch conn.type {
-                                
+
                             case .tcpClient:
-                                
+
                                 VStack(alignment: .leading, spacing: 6) {
-                                    
+
                                     Text("Host: \(conn.address)")
                                         .font(.caption)
                                         .foregroundStyle(Theme.textSecondary)
@@ -244,7 +339,7 @@ struct ConnectionsView: View {
                                     Text("Port: \(conn.port)")
                                         .font(.caption)
                                         .foregroundStyle(Theme.textSecondary)
-                                    
+
                                     HStack(spacing: 4) {
                                         Image(systemName: "network")
                                         Text("TCP Client")
@@ -273,20 +368,31 @@ struct ConnectionsView: View {
                                 }
                             }
                         }
-                        .swipeActions(edge: .trailing) {
-                            
-                            Button(role: .destructive) {
-                                deleteConnection(conn)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                            
+
+                        Spacer(minLength: 8)
+
+                        Menu {
+
                             Button {
                                 editConnection(conn)
                             } label: {
                                 Label("Edit", systemImage: "pencil")
                             }
-                            .tint(Theme.accent)
+
+                            Button(role: .destructive) {
+                                deleteConnection(conn)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.title2)
+                                .foregroundStyle(Theme.textSecondary)
+                                .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.plain)
+                        }
                         }
                     }
                     .listRowSpacing(12)
@@ -317,19 +423,29 @@ struct ConnectionsView: View {
             .background(Theme.background)
             .navigationTitle("Connections")
             .toolbar {
+
+                ToolbarItem(placement: .topBarLeading) {
+
+                    Button {
+                        isShowingScanner = true
+                    } label: {
+                        Image(systemName: "qrcode.viewfinder")
+                    }
+                }
+
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        
+
                         isRefreshing = true
-                        
+
                         interfaceManager.restartAll()
-                        
+
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                             isRefreshing = false
                         }
-                        
+
                     } label: {
-                        
+
                         Image(systemName: "arrow.clockwise")
                             .rotationEffect(.degrees(isRefreshing ? 360 : 0))
                             .animation(
@@ -342,7 +458,67 @@ struct ConnectionsView: View {
                     }
                 }
             }
+            // Routing (tab switch + cross-tab pending-hex) has to happen
+            // AFTER the scanner sheet has actually finished dismissing —
+            // QRScannerSheet calls its own dismiss() right after onScan
+            // fires, so setting selectedTab/pendingChatHex synchronously
+            // inside that same callback races the sheet's own dismissal
+            // animation and the navigation silently gets dropped (this is
+            // why a scan routed to the Messages tab but never actually
+            // pushed a ChatView). Stashing the result and acting on it in
+            // sheet(onDismiss:) — which SwiftUI guarantees fires only once
+            // the sheet is fully gone — removes the race entirely.
+            .sheet(isPresented: $isShowingScanner, onDismiss: {
+
+                if let scanned = pendingScannedCode {
+                    pendingScannedCode = nil
+                    handleScan(scanned)
+                }
+
+            }) {
+                QRScannerSheet { scanned in
+                    pendingScannedCode = scanned
+                }
+            }
+            .alert("Couldn't Read That Code", isPresented: scanErrorBinding) {
+
+                Button("OK", role: .cancel) {}
+
+            } message: {
+                Text("That QR code isn't a recognized IceNomad address.")
+            }
         }
+    }
+
+
+    /// Routes a scanned code to wherever it belongs — messaging for an
+    /// LXMF address, browsing for a NomadNet page. Once stickers exist in
+    /// the wild, this is the "walk up, scan, get dropped into the right
+    /// place" moment the whole feature is for.
+    private func handleScan(_ scanned: ScannedCode) {
+
+        switch scanned {
+
+        case .lxmf(let hex):
+            pendingChatHex = hex
+            selectedTab = .messages
+
+        case .nomadNet(let hex, _):
+            pendingBrowseHex = hex
+            selectedTab = .browser
+
+        case .unrecognized:
+            scanErrorMessage = "Unrecognized code"
+        }
+    }
+
+
+    private var scanErrorBinding: Binding<Bool> {
+
+        Binding(
+            get: { scanErrorMessage != nil },
+            set: { if !$0 { scanErrorMessage = nil } }
+        )
     }
 // MARK: - FLOW
     
@@ -653,16 +829,16 @@ struct ConnectionsView: View {
             Text("Your Address")
                 .font(.subheadline.weight(.semibold))
 
-            addressRow(label: "LXMF", value: LXMFDestination.myDestinationHashHex, description: "Share this so other LXMF/NomadNet users can message you.")
+            addressRow(label: "LXMF", value: LXMFDestination.myDestinationHashHex, description: "Share this so other LXMF/NomadNet users can message you.", scheme: "lxmf")
         }
         .padding(12)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
 
-    func addressRow(label: String, value: String, description: String) -> some View {
+    func addressRow(label: String, value: String, description: String, scheme: String? = nil) -> some View {
 
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 8) {
 
             HStack(spacing: 6) {
 
@@ -674,33 +850,98 @@ struct ConnectionsView: View {
                     .font(.system(.caption, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
-
-                Spacer()
-
-                Button {
-                    isShowingAddressQRCode = true
-                } label: {
-                    Image(systemName: "qrcode")
-                        .font(.caption)
-                }
-                .buttonStyle(.plain)
-                .sheet(isPresented: $isShowingAddressQRCode) {
-                    QRCodeView(label: label, value: value)
-                }
-
-                Button {
-                    UIPasteboard.general.string = value
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.caption)
-                }
-                .buttonStyle(.plain)
             }
 
             Text(description)
                 .font(.caption2)
                 .foregroundStyle(Theme.textSecondary)
+
+            // Full-size, clearly-labeled buttons instead of tiny bare
+            // icons — this is the primary "share my address" action in
+            // the app, worth being easy to hit and easy to read.
+            HStack(spacing: 10) {
+
+                Button {
+                    isShowingAddressQRCode = true
+                } label: {
+                    Label("QR Code", systemImage: "qrcode")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .sheet(isPresented: $isShowingAddressQRCode) {
+                    QRCodeView(label: label, value: value, scheme: scheme)
+                }
+
+                Button {
+                    UIPasteboard.general.string = value
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+            .controlSize(.regular)
         }
+    }
+
+
+    /// A muted, dashed-border "preset" row — tapping it pre-fills the TCP
+    /// form rather than adding the connection silently, so Save is still
+    /// an explicit, reviewable step.
+    func suggestedConnectionRow(_ suggestion: SuggestedConnection) -> some View {
+
+        Button {
+            resetAll()
+            name = suggestion.name
+            address = suggestion.address
+            port = suggestion.port
+            addState = .enteringDetails(.tcpClient)
+        } label: {
+
+            HStack(spacing: 10) {
+
+                Image(systemName: "network")
+                    .foregroundStyle(suggestion.isRecommended ? Theme.tcpGreen : Theme.textSecondary)
+
+                VStack(alignment: .leading, spacing: 2) {
+
+                    HStack(spacing: 6) {
+
+                        Text(suggestion.name)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Theme.textSecondary)
+
+                        if suggestion.isRecommended {
+
+                            Text("RECOMMENDED")
+                                .font(.system(size: 9, weight: .bold))
+                                .tracking(0.5)
+                                .foregroundStyle(Theme.tcpGreen)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Theme.tcpGreen.opacity(0.15), in: Capsule())
+                        }
+                    }
+
+                    Text("\(suggestion.address):\(suggestion.port)")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+
+                Spacer()
+
+                Text("Use")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .padding(10)
+            .background(Theme.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Theme.divider, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            )
+        }
+        .buttonStyle(.plain)
     }
 
 

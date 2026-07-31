@@ -14,14 +14,31 @@ struct QRCodeView: View {
 
     let label: String
     let value: String
+    /// Prefixed onto `value` inside the QR image itself (not the text
+    /// shown below it, which stays plain for easy manual copying) so a
+    /// scan self-describes what kind of address this is — see
+    /// ScannedCode.parse. Nil means encode `value` as-is.
+    var scheme: String? = nil
 
     @Environment(\.dismiss) private var dismiss
+
+    private var qrPayload: String {
+
+        guard let scheme else { return value }
+
+        // A real "scheme://" URL, not a bare "scheme:value" — Apple's
+        // own Camera app (and most third-party scanners) only recognize
+        // well-formed URLs as actionable QR content; a colon-only prefix
+        // with no "//" was scanning as unusable/no-data in Camera even
+        // though IceNomad's own VisionKit-based scanner read it fine.
+        return "\(scheme)://\(value)"
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
 
-                if let image = Self.generate(from: value) {
+                if let image = Self.generate(from: qrPayload) {
 
                     Image(uiImage: image)
                         .interpolation(.none)

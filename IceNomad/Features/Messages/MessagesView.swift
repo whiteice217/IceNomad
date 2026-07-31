@@ -7,14 +7,27 @@ import SwiftUI
 
 struct MessagesView: View {
 
+    @Binding var pendingChatHex: String?
+
     @ObservedObject private var messageStore = MessageStore.shared
     @ObservedObject private var contactStore = ContactStore.shared
 
     @State private var isComposing = false
-    @State private var navigationTarget: String?
+    @State private var pendingComposedHex: String?
+    /// Single source of truth for navigation — the conversation list's
+    /// own NavigationLink(value:), the compose-sheet's completion, and
+    /// the cross-tab pendingChatHex hint (QR scan, Micron lxmf@hash link)
+    /// all push onto this SAME path now. Previously the sheet/hint flow
+    /// used a separate `navigationDestination(item:)` alongside the
+    /// list's `navigationDestination(for: String.self)` — two resolvers
+    /// registered for the same underlying String type on one
+    /// NavigationStack is a real SwiftUI conflict (confirmed by it
+    /// actually breaking: a QR scan routed to the Messages tab but never
+    /// pushed the chat), so there's only one mechanism now.
+    @State private var path: [String] = []
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
 
                 if messageStore.conversationHashes.isEmpty {
@@ -27,18 +40,34 @@ struct MessagesView: View {
 
                 } else {
 
+                    // A per-row Menu instead of .swipeActions — swiping
+                    // needs a real drag gesture, which a trackpad click
+                    // doesn't produce under Mac Catalyst (confirmed: it
+                    // just didn't work at all on Mac). A tap/click-driven
+                    // menu behaves identically on both platforms.
                     List(messageStore.conversationHashes, id: \.self) { hex in
 
-                        NavigationLink(value: hex) {
-                            conversationRow(hex)
-                        }
-                        .swipeActions(edge: .trailing) {
+                        HStack {
 
-                            Button(role: .destructive) {
-                                messageStore.deleteConversation(for: hex)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                            NavigationLink(value: hex) {
+                                conversationRow(hex)
                             }
+
+                            Menu {
+
+                                Button(role: .destructive) {
+                                    messageStore.deleteConversation(for: hex)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
+                                    .font(.title2)
+                                    .foregroundStyle(Theme.textSecondary)
+                                    .frame(width: 44, height: 44)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .listRowBackground(Theme.surface)
@@ -62,16 +91,30 @@ struct MessagesView: View {
                     }
                 }
             }
-            .sheet(isPresented: $isComposing) {
+            // Deferred to onDismiss for the same reason as the QR scanner
+            // sheet in ConnectionsView: pushing navigation synchronously
+            // inside the sheet's own completion closure races its
+            // dismissal animation and can get silently dropped.
+            .sheet(isPresented: $isComposing, onDismiss: {
 
+                if let hex = pendingComposedHex {
+                    pendingComposedHex = nil
+                    path.append(hex)
+                }
+
+            }) {
                 NewConversationView { hex in
 
+                    pendingComposedHex = hex
                     isComposing = false
-                    navigationTarget = hex
                 }
             }
-            .navigationDestination(item: $navigationTarget) { hex in
-                ChatView(peerHashHex: hex)
+            .onChange(of: pendingChatHex) { _, hex in
+
+                guard let hex else { return }
+
+                path.append(hex)
+                pendingChatHex = nil
             }
         }
     }
