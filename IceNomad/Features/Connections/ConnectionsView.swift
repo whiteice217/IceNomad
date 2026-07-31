@@ -500,15 +500,29 @@ struct ConnectionsView: View {
         switch scanned {
 
         case .lxmf(let hex):
-            pendingChatHex = hex
-            selectedTab = .messages
+            switchTabThenRoute(to: .messages) { pendingChatHex = hex }
 
         case .nomadNet(let hex, _):
-            pendingBrowseHex = hex
-            selectedTab = .browser
+            switchTabThenRoute(to: .browser) { pendingBrowseHex = hex }
 
         case .unrecognized:
             scanErrorMessage = "Unrecognized code"
+        }
+    }
+
+
+    /// Switches tabs first, then sets the routing hint one run-loop tick
+    /// later — setting both in the same synchronous pass (as this used
+    /// to do) was unreliable specifically coming out of this sheet's
+    /// onDismiss: the destination tab's view isn't reliably ready to
+    /// observe the pendingChatHex/pendingBrowseHex change in the same
+    /// transaction as the tab switch itself, so the change gets missed.
+    private func switchTabThenRoute(to tab: AppTab, _ setHint: @escaping () -> Void) {
+
+        selectedTab = tab
+
+        DispatchQueue.main.async {
+            setHint()
         }
     }
 

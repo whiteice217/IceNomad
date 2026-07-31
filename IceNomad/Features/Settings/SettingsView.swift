@@ -18,7 +18,7 @@ struct SettingsView: View {
 
     /// Bryan's own Mac IceNomad LXMF address — lets a user report a bug
     /// straight from the app instead of leaving it for GitHub/email only.
-    private static let maintainerLXMFHex = "f048aff27bbc7f48c9c2f437482eabbb"
+    private static let maintainerLXMFHex = "e3b6916da538c5a7f3db14325fe3b650"
 
     var body: some View {
         NavigationStack {
