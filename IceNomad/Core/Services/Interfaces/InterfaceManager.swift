@@ -539,6 +539,8 @@ class InterfaceManager: ObservableObject {
         } else {
             Log.lxmf.error("Could not build LXMF announce packet")
         }
+
+        UserProfile.shared.markAnnounced()
     }
 
 

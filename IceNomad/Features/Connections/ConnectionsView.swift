@@ -19,10 +19,34 @@ enum ConnectionType: String, CaseIterable, Identifiable, Codable {
 
 // MARK: - RNode Config
 
+/// RNode Firmware exposes the exact same KISS command protocol over
+/// three different transports — USB serial, Bluetooth (Classic SPP or
+/// BLE, board-dependent), and, on boards with `HAS_WIFI` (confirmed in
+/// firmware source: Heltec32 V3/V4, T3S3, T-Deck, T-Beam Supreme, XIAO
+/// S3), a raw TCP server on port 7633 in either station (join an
+/// existing network) or access-point mode. Bluetooth's ~10-30m range is
+/// a real limitation for something like mounting the radio up a tree
+/// for elevation — WiFi's range is much longer, and since it's the same
+/// wire protocol either way, only the transport underneath RNodeInterface
+/// needs to change, not the KISS layer itself.
+enum RNodeConnectionMethod: String, Codable, CaseIterable, Identifiable {
+    case bluetooth = "Bluetooth"
+    case wifi = "WiFi"
+
+    var id: String { rawValue }
+}
+
 struct RNodeConfig: Codable {
     var name: String = ""
     var device: String = ""          // display name of the paired BLE peripheral
     var peripheralIdentifier: String = ""   // CBPeripheral.identifier.uuidString — used to reconnect
+
+    var connectionMethod: RNodeConnectionMethod = .bluetooth
+    /// The RNode's own IP when in WiFi mode — its AP-mode default is
+    /// 10.0.0.1 (confirmed in firmware source), or whatever your router
+    /// hands out in station mode.
+    var wifiHost: String = ""
+    var wifiPort: String = "7633"
 
     var freqGHz: String = "0"
     var freqMHz: String = "915"
@@ -75,6 +99,37 @@ struct RNodeConfig: Codable {
         }
 
         return UInt32((khz * 1000).rounded())
+    }
+
+
+    init() {}
+
+    /// Custom decode so existing saved connections (from before WiFi
+    /// support existed) don't fail to load entirely for missing keys —
+    /// the three new fields fall back to their defaults (Bluetooth,
+    /// empty host, port 7633) instead of the whole `RNodeConfig`
+    /// silently vanishing from `ConnectionStorage`.
+    init(from decoder: Decoder) throws {
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        name = try container.decode(String.self, forKey: .name)
+        device = try container.decode(String.self, forKey: .device)
+        peripheralIdentifier = try container.decode(String.self, forKey: .peripheralIdentifier)
+
+        connectionMethod = try container.decodeIfPresent(RNodeConnectionMethod.self, forKey: .connectionMethod) ?? .bluetooth
+        wifiHost = try container.decodeIfPresent(String.self, forKey: .wifiHost) ?? ""
+        wifiPort = try container.decodeIfPresent(String.self, forKey: .wifiPort) ?? "7633"
+
+        freqGHz = try container.decode(String.self, forKey: .freqGHz)
+        freqMHz = try container.decode(String.self, forKey: .freqMHz)
+        freqKHz = try container.decode(String.self, forKey: .freqKHz)
+        freqHz = try container.decode(String.self, forKey: .freqHz)
+
+        bandwidth = try container.decode(String.self, forKey: .bandwidth)
+        transmitPower = try container.decode(String.self, forKey: .transmitPower)
+        spreadingFactor = try container.decode(String.self, forKey: .spreadingFactor)
+        codingRate = try container.decode(String.self, forKey: .codingRate)
     }
 
 
@@ -359,8 +414,8 @@ struct ConnectionsView: View {
                                         Text("Power: \(rnode.transmitPower)")
 
                                         HStack(spacing: 4) {
-                                            Image(systemName: "wifi")
-                                            Text("RNode")
+                                            Image(systemName: rnode.connectionMethod == .wifi ? "wifi" : "antenna.radiowaves.left.and.right")
+                                            Text("RNode via \(rnode.connectionMethod.rawValue)")
                                         }
                                         .font(.caption)
                                         .foregroundStyle(Theme.rnodeBlue)
@@ -696,44 +751,94 @@ struct ConnectionsView: View {
                 .font(.headline)
             
             labeledField("Name", text: $rnode.name)
-            
-            // Device
+
+            // Connection method
             VStack(alignment: .leading, spacing: 6) {
 
-                Text("Device")
+                Text("Connect Via")
 
-                Button {
-                    isShowingRNodePairing = true
-                } label: {
-                    HStack {
-
-                        Image(systemName: rnode.peripheralIdentifier.isEmpty ? "antenna.radiowaves.left.and.right" : "checkmark.circle.fill")
-                            .foregroundStyle(rnode.peripheralIdentifier.isEmpty ? Theme.textSecondary : Theme.success)
-
-                        Text(rnode.device.isEmpty ? "Pair via Bluetooth…" : rnode.device)
-                            .foregroundStyle(Theme.textPrimary)
-
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                    .padding(8)
-                    .background(Theme.surface)
-                    .cornerRadius(8)
-                }
-            }
-            .sheet(isPresented: $isShowingRNodePairing) {
-
-                RNodePairingView { device in
-                    rnode.device = device.name
-                    rnode.peripheralIdentifier = device.id.uuidString
-
-                    if rnode.name.isEmpty {
-                        rnode.name = device.name
+                Picker("Connect Via", selection: $rnode.connectionMethod) {
+                    ForEach(RNodeConnectionMethod.allCases) { method in
+                        Text(method.rawValue).tag(method)
                     }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
-            
+
+            if rnode.connectionMethod == .bluetooth {
+
+                // Device
+                VStack(alignment: .leading, spacing: 6) {
+
+                    Text("Device")
+
+                    Button {
+                        isShowingRNodePairing = true
+                    } label: {
+                        HStack {
+
+                            Image(systemName: rnode.peripheralIdentifier.isEmpty ? "antenna.radiowaves.left.and.right" : "checkmark.circle.fill")
+                                .foregroundStyle(rnode.peripheralIdentifier.isEmpty ? Theme.textSecondary : Theme.success)
+
+                            Text(rnode.device.isEmpty ? "Pair via Bluetooth…" : rnode.device)
+                                .foregroundStyle(Theme.textPrimary)
+
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(Theme.textSecondary)
+                        }
+                        .padding(8)
+                        .background(Theme.surface)
+                        .cornerRadius(8)
+                    }
+                }
+                .sheet(isPresented: $isShowingRNodePairing) {
+
+                    RNodePairingView { device in
+                        rnode.device = device.name
+                        rnode.peripheralIdentifier = device.id.uuidString
+
+                        if rnode.name.isEmpty {
+                            rnode.name = device.name
+                        }
+                    }
+                }
+
+            } else {
+
+                // WiFi host/port — the RNode's own IP once it's in WiFi
+                // mode, not this device's. Its AP-mode default is
+                // 10.0.0.1 (confirmed in firmware source); in station
+                // mode it's whatever your router hands out.
+                VStack(alignment: .leading, spacing: 6) {
+
+                    Text("RNode Address")
+
+                    HStack(spacing: 8) {
+
+                        TextField("IP address, e.g. 10.0.0.1", text: $rnode.wifiHost)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.numbersAndPunctuation)
+                            .padding(8)
+                            .background(Theme.surface)
+                            .cornerRadius(8)
+
+                        TextField("Port", text: $rnode.wifiPort)
+                            .keyboardType(.numberPad)
+                            .frame(width: 70)
+                            .padding(8)
+                            .background(Theme.surface)
+                            .cornerRadius(8)
+                    }
+
+                    Text("Put the RNode in WiFi mode first (rnodeconf, or the on-device Bootstrap Console) — 10.0.0.1 is its own access-point address, port 7633 is the default.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+
             // Frequency
             VStack(alignment: .leading, spacing: 6) {
                 
