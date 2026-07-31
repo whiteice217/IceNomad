@@ -67,7 +67,7 @@ struct AnnounceView: View {
                                         "Contacts (\(contactPeers.count))",
                                         systemImage: "person.fill.checkmark"
                                     )
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(Theme.success)
                                 }
                             }
                         }
@@ -101,14 +101,18 @@ struct AnnounceView: View {
                                         "Unnamed Peers (\(unnamedPeers.count))",
                                         systemImage: "questionmark.circle"
                                     )
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Theme.textSecondary)
                                 }
                             }
                         }
                     }
                     .listRowSpacing(12)
+                    .listRowBackground(Theme.surface)
+                    .scrollContentBackground(.hidden)
+                    .background(Theme.background)
                 }
             }
+            .background(Theme.background)
             .navigationTitle("Announce")
             .navigationDestination(item: $chatTarget) { hex in
                 ChatView(peerHashHex: hex)
@@ -168,17 +172,18 @@ struct AnnounceView: View {
 
                 Text(contactStore.displayName(for: peer.destinationHashHex))
                     .font(.headline)
+                    .foregroundStyle(peer.interfaceColor ?? Theme.textPrimary)
 
                 if isContact {
                     Image(systemName: "person.fill.checkmark")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Theme.success)
                         .font(.caption)
                 }
             }
 
             Text(peer.destinationHashHex)
                 .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
                 .lineLimit(1)
 
             HStack {
@@ -190,7 +195,7 @@ struct AnnounceView: View {
                 Text(peer.lastSeen, style: .relative)
             }
             .font(.caption2)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Theme.textSecondary)
         }
         .padding(.vertical, 2)
         .swipeActions(edge: .trailing) {
@@ -200,7 +205,7 @@ struct AnnounceView: View {
             } label: {
                 Label("Message", systemImage: "message")
             }
-            .tint(.blue)
+            .tint(Theme.accent)
 
             Button {
 
@@ -216,7 +221,7 @@ struct AnnounceView: View {
                     systemImage: isContact ? "person.fill.xmark" : "person.badge.plus"
                 )
             }
-            .tint(.green)
+            .tint(Theme.success)
         }
     }
 

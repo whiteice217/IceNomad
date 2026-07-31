@@ -9,6 +9,7 @@ struct SettingsView: View {
 
     @ObservedObject private var userProfile = UserProfile.shared
     @ObservedObject private var interfaceManager = InterfaceManager.shared
+    @ObservedObject private var peerStore = PeerStore.shared
 
     @State private var didSendAnnounce = false
 
@@ -26,14 +27,6 @@ struct SettingsView: View {
                     Text("Shown to others as your name when you announce.")
                 }
 
-                Section("Your Address") {
-
-                    Text(ReticulumDestination.myDestinationHashHex)
-                        .font(.system(.footnote, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-
                 Section {
 
                     Button {
@@ -46,13 +39,30 @@ struct SettingsView: View {
                     if didSendAnnounce {
                         Text("Announce sent.")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.textSecondary)
                     }
 
                 } footer: {
                     Text("Announces let other peers learn your name and public key, so they can message you and see you as a contact suggestion.")
                 }
+
+                Section {
+
+                    Picker("Keep Announces", selection: $peerStore.maxAnnounces) {
+
+                        ForEach(PeerStore.announceLimitOptions, id: \.self) { limit in
+                            Text("\(limit)").tag(limit)
+                        }
+                    }
+
+                } header: {
+                    Text("Announce History")
+                } footer: {
+                    Text("The most recent \(peerStore.maxAnnounces) announced peers are kept. Older ones are dropped as new announces come in — saved contacts aren't affected.")
+                }
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.background)
             .navigationTitle("Settings")
         }
     }

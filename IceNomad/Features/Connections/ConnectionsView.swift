@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 // MARK: - Models
 
@@ -20,7 +21,8 @@ enum ConnectionType: String, CaseIterable, Identifiable, Codable {
 
 struct RNodeConfig: Codable {
     var name: String = ""
-    var device: String = ""
+    var device: String = ""          // display name of the paired BLE peripheral
+    var peripheralIdentifier: String = ""   // CBPeripheral.identifier.uuidString — used to reconnect
 
     var freqGHz: String = "0"
     var freqMHz: String = "915"
@@ -45,6 +47,49 @@ struct RNodeConfig: Codable {
                       (hz * 1)
 
         return String(format: "%012d", totalHz)
+    }
+
+
+    /// Same value as frequencyHzString, but as the raw UInt32 Hz the
+    /// RNode's CMD_FREQUENCY KISS command actually expects on the wire.
+    var frequencyHz: UInt32 {
+
+        let ghz = UInt32(freqGHz) ?? 0
+        let mhz = UInt32(freqMHz) ?? 0
+        let khz = UInt32(freqKHz) ?? 0
+        let hz = UInt32(freqHz) ?? 0
+
+        return (ghz * 1_000_000_000) + (mhz * 1_000_000) + (khz * 1_000) + hz
+    }
+
+
+    /// Parses a "125 KHz" / "7.8 KHz" style bandwidth label into raw Hz,
+    /// for CMD_BANDWIDTH — RNode firmware expects the exact Hz value,
+    /// not a picker label.
+    var bandwidthHz: UInt32 {
+
+        let numeric = bandwidth.split(separator: " ").first.map(String.init) ?? "0"
+
+        guard let khz = Double(numeric) else {
+            return 125_000
+        }
+
+        return UInt32((khz * 1000).rounded())
+    }
+
+
+    var transmitPowerByte: UInt8 {
+        UInt8(clamping: Int(transmitPower) ?? 7)
+    }
+
+
+    var spreadingFactorByte: UInt8 {
+        UInt8(clamping: Int(spreadingFactor) ?? 8)
+    }
+
+
+    var codingRateByte: UInt8 {
+        UInt8(clamping: Int(codingRate) ?? 5)
     }
 }
 
@@ -79,6 +124,8 @@ struct ConnectionsView: View {
     @State private var addState: AddState = .idle
     @ObservedObject private var interfaceManager = InterfaceManager.shared
     @State private var isRefreshing = false
+    @State private var isShowingRNodePairing = false
+    @State private var isShowingAddressQRCode = false
     
     // TCP
     @State private var name = ""
@@ -91,31 +138,77 @@ struct ConnectionsView: View {
     var body: some View {
         
         NavigationStack {
-            
+
             VStack {
-                
+
+                myAddressesCard
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+
                 if connections.isEmpty {
 
-                    VStack(spacing: 16) {
+                    ScrollView {
 
-                        Text("No Connections")
-                            .font(.headline)
+                        VStack(spacing: 20) {
+
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: 48))
+                                .foregroundStyle(Theme.textSecondary)
+                                .padding(.top, 40)
+
+                            VStack(spacing: 8) {
+
+                                Text("No Connections Yet")
+                                    .font(.title3.weight(.semibold))
+
+                                Text("IceNomad needs at least one connection to reach the Reticulum network. Add one to start seeing announces and messages.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Theme.textSecondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 32)
+                            }
+
+                            VStack(alignment: .leading, spacing: 16) {
+
+                                instructionRow(
+                                    icon: "network",
+                                    color: Theme.tcpGreen,
+                                    title: "TCP Connection",
+                                    body: "Connect to a Reticulum node over the internet or your local network. You'll need its address (hostname or IP) and port — ask whoever runs the node, or use a public one."
+                                )
+
+                                instructionRow(
+                                    icon: "wave.3.right",
+                                    color: Theme.rnodeBlue,
+                                    title: "RNode (Bluetooth/USB)",
+                                    body: "Pair a physical RNode-compatible LoRa radio. Turn it on and make sure it's paired in Bluetooth settings (or connected via USB) before adding it here."
+                                )
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 16)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .padding(.horizontal)
+
+                            Button {
+                                addState = .choosingType
+                            } label: {
+                                HStack {
+                                    Image(systemName: "plus")
+                                    Text("Add Connection")
+                                }
+                                .padding(.horizontal, 20)
+                            }
+                            .buttonStyle(.borderedProminent)
 
 
-                        Button {
-                            addState = .choosingType
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 60))
+                            if addState != .idle {
+                                Divider()
+                                addFlowView
+                            }
                         }
-
-
-                        if addState != .idle {
-                            Divider()
-                            addFlowView
-                        }
+                        .padding(.bottom, 24)
                     }
-                    
+
                 } else {
                     
                     List(connections) { conn in
@@ -129,8 +222,8 @@ struct ConnectionsView: View {
                                         interfaceManager.interfaces.contains {
                                             $0.name == conn.name && $0.isConnected
                                         }
-                                        ? Color.green
-                                        : Color.red
+                                        ? Theme.success
+                                        : Theme.danger
                                     )
                                     .frame(width: 10, height: 10)
                                 
@@ -146,36 +239,36 @@ struct ConnectionsView: View {
                                     
                                     Text("Host: \(conn.address)")
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    
+                                        .foregroundStyle(Theme.textSecondary)
+
                                     Text("Port: \(conn.port)")
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(Theme.textSecondary)
                                     
                                     HStack(spacing: 4) {
                                         Image(systemName: "network")
                                         Text("TCP Client")
                                     }
                                     .font(.caption)
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(Theme.tcpGreen)
                                 }
-                                
+
                             case .rNode:
-                                
+
                                 if let rnode = conn.rnodeConfig {
-                                    
+
                                     VStack(alignment: .leading) {
-                                        
+
                                         Text("Frequency: \(rnode.frequencyHzString)")
                                         Text("Bandwidth: \(rnode.bandwidth)")
                                         Text("Power: \(rnode.transmitPower)")
-                                        
+
                                         HStack(spacing: 4) {
                                             Image(systemName: "wifi")
                                             Text("RNode")
                                         }
                                         .font(.caption)
-                                        .foregroundStyle(.blue)
+                                        .foregroundStyle(Theme.rnodeBlue)
                                     }
                                 }
                             }
@@ -193,12 +286,15 @@ struct ConnectionsView: View {
                             } label: {
                                 Label("Edit", systemImage: "pencil")
                             }
-                            .tint(.blue)
+                            .tint(Theme.accent)
                         }
                     }
                     .listRowSpacing(12)
-                    
-                    
+                    .listRowBackground(Theme.surface)
+                    .scrollContentBackground(.hidden)
+                    .background(Theme.background)
+
+
                     Button {
                         addState = .choosingType
                     } label: {
@@ -210,14 +306,15 @@ struct ConnectionsView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .padding(.bottom)
-                    
-                    
+
+
                     if addState != .idle {
                         Divider()
                         addFlowView
                     }
                 }
             }
+            .background(Theme.background)
             .navigationTitle("Connections")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -245,11 +342,6 @@ struct ConnectionsView: View {
                     }
                 }
             }
-        }
-        .onAppear {
-            
-            interfaceManager.loadInterfaces()
-            interfaceManager.startAll()
         }
     }
 // MARK: - FLOW
@@ -370,16 +462,17 @@ struct ConnectionsView: View {
                     
                     
                     ConnectionStorage.shared.save(connections)
-                    
+                    interfaceManager.restartAll()
+
                     resetAll()
                     addState = .idle
-                    
-                    
+
+
                 } label: {
-                    
+
                     Text("Save")
                         .frame(maxWidth: .infinity)
-                    
+
                 }
                 .buttonStyle(.borderedProminent)
                 
@@ -415,23 +508,39 @@ struct ConnectionsView: View {
             labeledField("Name", text: $rnode.name)
             
             // Device
-            HStack {
+            VStack(alignment: .leading, spacing: 6) {
+
                 Text("Device")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                
-                Menu {
-                    Button("No Device") { rnode.device = "" }
-                    Button("Device A") { rnode.device = "Device A" }
-                    Button("Device B") { rnode.device = "Device B" }
+
+                Button {
+                    isShowingRNodePairing = true
                 } label: {
                     HStack {
-                        Text(rnode.device.isEmpty ? "Select Device" : rnode.device)
+
+                        Image(systemName: rnode.peripheralIdentifier.isEmpty ? "antenna.radiowaves.left.and.right" : "checkmark.circle.fill")
+                            .foregroundStyle(rnode.peripheralIdentifier.isEmpty ? Theme.textSecondary : Theme.success)
+
+                        Text(rnode.device.isEmpty ? "Pair via Bluetooth…" : rnode.device)
+                            .foregroundStyle(Theme.textPrimary)
+
                         Spacer()
-                        Image(systemName: "chevron.down")
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(Theme.textSecondary)
                     }
                     .padding(8)
-                    .background(Color.gray.opacity(0.15))
+                    .background(Theme.surface)
                     .cornerRadius(8)
+                }
+            }
+            .sheet(isPresented: $isShowingRNodePairing) {
+
+                RNodePairingView { device in
+                    rnode.device = device.name
+                    rnode.peripheralIdentifier = device.id.uuidString
+
+                    if rnode.name.isEmpty {
+                        rnode.name = device.name
+                    }
                 }
             }
             
@@ -469,8 +578,6 @@ struct ConnectionsView: View {
             HStack(spacing: 20) {
                 
                 Button {
-                    print("Saving frequency:", rnode.frequencyHzString)
-                    
                     let connection = Connection(
                         id: {
                             if case .editing(let id) = addState {
@@ -505,6 +612,7 @@ struct ConnectionsView: View {
 
 
                     ConnectionStorage.shared.save(connections)
+                    interfaceManager.restartAll()
 
                     resetAll()
                     addState = .idle
@@ -533,7 +641,91 @@ struct ConnectionsView: View {
     }
     
     // MARK: - COMPONENTS
-    
+
+    /// Your identity's own addresses — not tied to any one connection,
+    /// since they're derived from your identity key, not an interface.
+    /// Shown here since this is where people naturally look for "how do
+    /// I get reached."
+    var myAddressesCard: some View {
+
+        VStack(alignment: .leading, spacing: 10) {
+
+            Text("Your Address")
+                .font(.subheadline.weight(.semibold))
+
+            addressRow(label: "LXMF", value: LXMFDestination.myDestinationHashHex, description: "Share this so other LXMF/NomadNet users can message you.")
+        }
+        .padding(12)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+
+    func addressRow(label: String, value: String, description: String) -> some View {
+
+        VStack(alignment: .leading, spacing: 2) {
+
+            HStack(spacing: 6) {
+
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.textSecondary)
+
+                Text(value)
+                    .font(.system(.caption, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer()
+
+                Button {
+                    isShowingAddressQRCode = true
+                } label: {
+                    Image(systemName: "qrcode")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .sheet(isPresented: $isShowingAddressQRCode) {
+                    QRCodeView(label: label, value: value)
+                }
+
+                Button {
+                    UIPasteboard.general.string = value
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text(description)
+                .font(.caption2)
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+
+
+    func instructionRow(icon: String, color: Color = Theme.accent, title: String, body: String) -> some View {
+
+        HStack(alignment: .top, spacing: 12) {
+
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(color)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+
+                Text(body)
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+        }
+    }
+
+
     func labeledField(_ title: String,
                       text: Binding<String>,
                       keyboard: UIKeyboardType = .default) -> some View {
@@ -555,7 +747,7 @@ struct ConnectionsView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
             
             TextField("", text: text)
                 .keyboardType(keyboard)
@@ -595,6 +787,7 @@ struct ConnectionsView: View {
         }
 
         ConnectionStorage.shared.save(connections)
+        interfaceManager.restartAll()
     }
 
 

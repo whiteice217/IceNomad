@@ -32,9 +32,21 @@ struct MessagesView: View {
                         NavigationLink(value: hex) {
                             conversationRow(hex)
                         }
+                        .swipeActions(edge: .trailing) {
+
+                            Button(role: .destructive) {
+                                messageStore.deleteConversation(for: hex)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                     }
+                    .listRowBackground(Theme.surface)
+                    .scrollContentBackground(.hidden)
+                    .background(Theme.background)
                 }
             }
+            .background(Theme.background)
             .navigationTitle("Messages")
             .navigationDestination(for: String.self) { hex in
                 ChatView(peerHashHex: hex)
@@ -72,7 +84,7 @@ struct MessagesView: View {
 
             Image(systemName: "person.crop.circle.fill")
                 .font(.system(size: 36))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
 
             VStack(alignment: .leading, spacing: 2) {
 
@@ -83,7 +95,7 @@ struct MessagesView: View {
 
                     Text(last.text)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                         .lineLimit(1)
                 }
             }
@@ -94,7 +106,7 @@ struct MessagesView: View {
 
                 Text(last.timestamp, style: .relative)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
             }
         }
         .padding(.vertical, 4)
@@ -157,7 +169,7 @@ private struct NewConversationView: View {
 
                                     Text(contact.destinationHashHex)
                                         .font(.system(.caption2, design: .monospaced))
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(Theme.textSecondary)
                                 }
                             }
                         }
