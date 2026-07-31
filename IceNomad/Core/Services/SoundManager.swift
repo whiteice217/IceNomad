@@ -5,6 +5,7 @@
 //  Created by Bryan Stern on 7/8/26.
 //
 import AVFoundation
+import OSLog
 
 
 class SoundManager {
@@ -16,21 +17,14 @@ class SoundManager {
 
     func playNoot() {
 
-        print("Attempting NOOT")
-
-
         guard let url = Bundle.main.url(
             forResource: "nootnoot",
             withExtension: "mp3"
         )
         else {
-            print("❌ NOOT FILE NOT FOUND")
+            Log.audio.error("nootnoot.mp3 not found in bundle — check it's still included in the target's build phase")
             return
         }
-
-
-        print("✅ Found sound:", url)
-
 
         do {
 
@@ -42,12 +36,10 @@ class SoundManager {
             player?.prepareToPlay()
             player?.play()
 
-            print("✅ NOOT PLAYING")
-
         }
         catch {
 
-            print("❌ Audio error:", error)
+            Log.audio.error("Failed to play nootnoot.mp3: \(error)")
 
         }
     }

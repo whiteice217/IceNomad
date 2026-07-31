@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import OSLog
 
 
 @MainActor
@@ -35,7 +36,7 @@ class ReticulumManager: ObservableObject {
         }
 
 
-        print("Starting Reticulum")
+        Log.reticulum.notice("Starting Reticulum")
 
 
         interfaceManager.loadInterfaces()
@@ -57,7 +58,7 @@ class ReticulumManager: ObservableObject {
     func stop() {
 
 
-        print("Stopping Reticulum")
+        Log.reticulum.notice("Stopping Reticulum")
 
 
         interfaceManager.stopAll()

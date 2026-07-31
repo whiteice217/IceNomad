@@ -41,7 +41,6 @@ struct SplashView: View {
         .onChange(of: startup.playCompletionSound) { oldValue, newValue in
 
             if newValue {
-                print("NOOT EVENT RECEIVED")
                 SoundManager.shared.playNoot()
             }
 

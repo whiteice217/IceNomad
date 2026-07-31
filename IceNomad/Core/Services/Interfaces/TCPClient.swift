@@ -7,6 +7,7 @@
 
 import Foundation
 import Network
+import OSLog
 
 
 class TCPClient: ReticulumInterface {
@@ -24,6 +25,10 @@ class TCPClient: ReticulumInterface {
 
 
     private var connection: NWConnection?
+
+    private var shouldReconnect = true
+    private var reconnectAttempt = 0
+    private var reconnectWorkItem: DispatchWorkItem?
 
 
     var onReceive: ((Data) -> Void)?
@@ -46,22 +51,35 @@ class TCPClient: ReticulumInterface {
 
     func start() {
 
-        print("Starting TCP Client")
-        print("Address:", address)
-        print("Port:", port)
+        Log.network.info("Starting TCP client \(self.name, privacy: .public) — \(self.address, privacy: .public):\(self.port, privacy: .public)")
+
+        shouldReconnect = true
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
 
 
         guard let tcpPort = NWEndpoint.Port(port) else {
 
-            print("Invalid TCP port")
+            Log.network.error("TCP client \(self.name, privacy: .public): invalid port \(self.port, privacy: .public)")
             return
         }
 
 
+        // Explicit TCP options with Nagle's algorithm disabled — the
+        // default NWParameters.tcp leaves it on, which can buffer and
+        // coalesce small packets (like our control packets: path
+        // requests, link requests) before they hit the wire. Reticulum's
+        // own reference clients don't wait around for that; every packet
+        // should go out immediately.
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+
+        let parameters = NWParameters(tls: nil, tcp: tcpOptions)
+
         connection = NWConnection(
             host: NWEndpoint.Host(address),
             port: tcpPort,
-            using: .tcp
+            using: parameters
         )
 
 
@@ -77,8 +95,9 @@ class TCPClient: ReticulumInterface {
 
             case .ready:
 
-                print("🟢 TCP connected")
+                Log.network.info("TCP client \(self.name, privacy: .public) connected")
 
+                self.reconnectAttempt = 0
                 self.isConnected = true
                 self.onStatusChanged?(true)
 
@@ -87,16 +106,16 @@ class TCPClient: ReticulumInterface {
 
             case .failed(let error):
 
-                print("🔴 TCP failed:")
-                print(error)
+                Log.network.error("TCP client \(self.name, privacy: .public) failed: \(error)")
 
                 self.isConnected = false
                 self.onStatusChanged?(false)
+                self.scheduleReconnect()
 
 
             case .cancelled:
 
-                print("🔴 TCP cancelled")
+                Log.network.notice("TCP client \(self.name, privacy: .public) cancelled")
 
                 self.isConnected = false
                 self.onStatusChanged?(false)
@@ -118,7 +137,11 @@ class TCPClient: ReticulumInterface {
 
     func stop() {
 
-        print("Stopping TCP Client")
+        Log.network.info("Stopping TCP client \(self.name, privacy: .public)")
+
+        shouldReconnect = false
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
 
         connection?.cancel()
         connection = nil
@@ -128,12 +151,37 @@ class TCPClient: ReticulumInterface {
     }
 
 
+    /// Reconnects after a dropped connection with a capped exponential
+    /// backoff — Network.framework doesn't retry TCP for us, and without
+    /// this a single hiccup (idle timeout, network switch, server-side
+    /// close) would silently kill the interface for the rest of the app's
+    /// lifetime, with no further announces or messages ever arriving.
+    private func scheduleReconnect() {
+
+        guard shouldReconnect else {
+            return
+        }
+
+        reconnectAttempt += 1
+        let delay = min(pow(2.0, Double(reconnectAttempt)), 30.0)
+
+        Log.network.notice("TCP client \(self.name, privacy: .public) reconnecting in \(delay)s (attempt \(self.reconnectAttempt))")
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.start()
+        }
+
+        reconnectWorkItem = workItem
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+
 
     func send(data: Data) {
 
         guard let connection else {
 
-            print("TCP not available")
+            Log.network.error("TCP client \(self.name, privacy: .public): send attempted with no live connection — packet dropped")
             return
         }
 
@@ -143,21 +191,10 @@ class TCPClient: ReticulumInterface {
 
         connection.send(
             content: data,
-            completion: .contentProcessed { error in
+            completion: .contentProcessed { [weak self] error in
 
-                if let error {
-
-                    print("TCP send error:")
-                    print(error)
-
-                }
-                else {
-
-                    print(
-                        "📤 TCP sent:",
-                        data.count,
-                        "bytes"
-                    )
+                if let error, let self {
+                    Log.network.error("TCP client \(self.name, privacy: .public) send error: \(error)")
                 }
             }
         )
@@ -182,24 +219,13 @@ class TCPClient: ReticulumInterface {
             if let data, !data.isEmpty {
 
                 self.bytesReceived += data.count
-
-
-                print(
-                    "📥 TCP received:",
-                    data.count,
-                    "bytes"
-                )
-
-
                 self.onReceive?(data)
             }
 
 
             if let error {
 
-                print("TCP receive error:")
-                print(error)
-
+                Log.network.error("TCP client \(self.name, privacy: .public) receive error: \(error)")
                 return
             }
 

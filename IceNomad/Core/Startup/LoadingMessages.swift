@@ -4,159 +4,169 @@
 //
 //  Created by Bryan Stern on 7/6/26.
 //
+//  Each array corresponds to a real startup stage in StartupManager —
+//  not just decorative flavor text on a timer. See StartupManager for
+//  what actually gates each stage's completion.
+//
 import Foundation
 
 struct LoadingMessages {
 
-    static let messages = [
-        "Stealing spare wires from the old ice castle...",
-        "Finding out who unplugged the magic antenna...",
-        "Building a radio from mysterious leftovers...",
-        "Checking if this thing is supposed to spark...",
-        "Probably should not have touched that crystal...",
-        "Teaching an iceberg how to hold a signal...",
-        "Installing the first penguin-built antenna...",
-        "Searching for friends who appreciate weird radio projects...",
-        "Making a tower out of snow, scrap, and determination...",
-        "Finding a screwdriver that isn't frozen...",
-        "Negotiating with the antenna goblins...",
-        "Removing unnecessary ice from the circuitry...",
-        "Giving the radio a tiny penguin hat...",
-        "Checking if the wires are connected to the right snowbank...",
-        "Adding more antenna. That always works.",
-        "Making the signal taller than the iceberg...",
-        "Testing the emergency fish-powered generator...",
-        "Borrowing batteries from suspiciously abandoned machines...",
-        "Checking if the antenna still believes in itself...",
-        "Teaching the radio to scream into the void politely...",
-        "Looking for friendly voices in the frozen silence...",
-        "Sending a tiny penguin hello...",
-        "Waiting for someone to answer the tiny penguin hello...",
-        "Adjusting the friendship frequency...",
-        "Searching for lost companions across the ice...",
-        "Finding other strange creatures on the network...",
-        "Building bridges between lonely icebergs...",
-        "Creating a home away from home...",
-        "Packing snacks for the long network journey...",
-        "Making sure nobody stole the fish supply...",
-        "Checking the emergency fish protocol...",
-        "Deploying maximum penguin engineering...",
-        "Activating questionable but clever solutions...",
-        "Replacing broken parts with slightly less broken parts...",
-        "Applying advanced penguin logic...",
-        "Turning it off and turning it back on...",
-        "Giving the antenna a gentle motivational speech...",
-        "Threatening the antenna with retirement...",
-        "The antenna has reconsidered its choices...",
-        "Checking why the packets wandered away...",
-        "Following lost packets through the snow...",
-        "Finding packets hiding under ice chunks...",
-        "Rescuing trapped messages...",
-        "Convincing TCP to stop being dramatic...",
-        "Waiting patiently for ACK...",
-        "Wondering where the SYN packets went...",
-        "Searching the frozen wilderness for missing handshakes...",
-        "Finding the node that forgot to introduce itself...",
-        "Politely knocking on distant nodes...",
-        "Checking if the mesh remembered us...",
-        "Teaching LoRa how to whisper farther...",
-        "Making tiny radio waves do tiny miracles...",
-        "Adjusting the antenna because physics said no...",
-        "Moving the antenna three inches because that fixes everything...",
-        "Rotating the antenna until the penguin feels confident...",
-        "Checking if the frequency is actually the frequency...",
-        "Making sure 915 MHz is still where we left it...",
-        "Calibrating the magic ice radio...",
-        "Cleaning snow off the RNode...",
-        "Giving the Heltec a tiny winter jacket...",
-        "Making sure USB cables are not haunted...",
-        "Looking for the mysterious missing serial port...",
-        "Finding out why the computer doesn't see the radio...",
-        "Checking permissions in the frozen terminal...",
-        "Asking Linux nicely for access...",
-        "Negotiating with /dev/ttyUSB0...",
-        "Searching the logs for suspicious snowflakes...",
-        "Reading ancient messages from dmesg...",
-        "Looking through the filesystem cave...",
-        "Checking the frozen configuration scrolls...",
-        "Finding the misplaced identity file...",
-        "Searching ~/.reticulum for clues...",
-        "Looking through NomadNet footprints...",
-        "Recovering lost network memories...",
-        "Making sure the cryptographic penguin passport works...",
-        "Polishing the identity key...",
-        "Generating fresh frozen randomness...",
-        "Creating a new digital flipperprint...",
-        "Protecting the penguin's secret diary...",
-        "Locking the icebox of encryption...",
-        "Checking if the firewall is feeling friendly...",
-        "Opening a safe tunnel through the snowstorm...",
-        "Building a cozy encrypted igloo...",
-        "Connecting the lonely nodes together...",
-        "Finding other wanderers...",
-        "Broadcasting the penguin beacon...",
-        "Waiting for another weird penguin to answer...",
-        "Listening for distant squawks on the radio...",
-        "Translating mysterious ice noises...",
-        "Determining if that was a signal or just a seal...",
-        "Checking network weather...",
-        "Watching packet snow fall...",
-        "Predicting tomorrow's connectivity forecast...",
-        "Clearing the RF blizzard...",
-        "Finding a quiet spot on the spectrum...",
-        "Searching the frozen electromagnetic ocean...",
-        "Mapping invisible radio rivers...",
-        "Charting unknown network waters...",
-        "Exploring places nobody bothered to connect...",
-        "Leaving little digital footprints behind...",
-        "Making a trail through the mesh...",
-        "Following the wandering signal...",
-        "Creating a path where there wasn't one before...",
-        "Building a tiny internet in the snow...",
-        "Opening the penguin command center...",
-        "Starting the slightly questionable expedition...",
-        "Preparing the backpack full of wires...",
-        "Checking the emergency snacks...",
-        "Charging the friendship machine...",
-        "Almost ready to wander...",
-        "The antenna is awake...",
-        "The ice is listening...",
-        "The network is responding...",
-        "Someone answered the penguin...",
-        "A new friend has been discovered...",
-        "The frozen frontier is connected...",
-        "Day 37: The antenna still works somehow...",
-        "The penguin has made another questionable invention...",
-        "The penguin insists this is a feature...",
-        "The penguin denies breaking anything...",
-        "The penguin has fixed the problem by adding more wires...",
-        "The penguin has consulted the ancient troubleshooting scrolls...",
-        "The penguin has tried turning the iceberg off and on again...",
-        "The penguin is pretty sure this is networking...",
-        "The penguin understands approximately 63% of this problem...",
-        "The penguin has declared victory over the error message...",
-        "The penguin has defeated the mysterious red light...",
-        "The penguin has made friends with the blinking LED..."
+    static let softwareLaunching = [
+        "IceNomad is waking from its frozen slumber…",
+        "Warming up the expedition core…",
+        "Breaking through the startup ice…",
+        "Penguin navigator is preparing for departure…",
+        "Initializing the frozen frontier systems…",
+        "Snow is clearing from the communication console…",
+        "The IceNomad explorer is stretching its flippers…",
+        "Activating the glacier command center…",
+        "Loading expedition tools from the ice shelf…",
+        "Preparing the penguin colony interface…",
+        "The northern systems are coming online…",
+        "IceNomad is preparing to explore the unknown…",
+        "Booting the colony navigation systems…",
+        "Frozen circuits are beginning to thaw…",
+        "Gathering supplies for the digital expedition…",
+        "The explorer's pack is being loaded…",
+        "Setting up the IceNomad command post…",
+        "Clearing the frost from system pathways…",
+        "Penguin crew is reporting for duty…",
+        "The ice engine is roaring to life…"
     ]
 
-// Keeps track of the last message shown
+    static let foundConnections = [
+        "Scout penguin discovered nearby communication trails…",
+        "Frozen pathways detected across the horizon…",
+        "Ice bridges have been spotted in the distance…",
+        "Network footprints found in fresh snow…",
+        "Expedition routes have been mapped…",
+        "Nearby colonies have been located…",
+        "The scout team has returned with connection data…",
+        "Signals detected beyond the frozen ridge…",
+        "Discovering paths through the digital glacier…",
+        "Penguin scouts found friendly routes…",
+        "New trails are appearing on the ice map…",
+        "The communication tundra is revealing its secrets…",
+        "Colony signals detected nearby…",
+        "Ice routes identified and marked…",
+        "The explorer compass has found new directions…",
+        "Following digital footprints across the snow…",
+        "Network landmarks discovered…",
+        "Frozen pathways are available for travel…",
+        "The colony map is expanding…",
+        "New communication glaciers discovered…"
+    ]
 
-        private static var lastMessage: String?
+    static let connectingToNetwork = [
+        "Penguin scout is waddling toward the Reticulum network…",
+        "Attempting to cross the frozen communication tundra…",
+        "Carving a secure ice bridge to the network…",
+        "Sending a beacon across the frozen horizon…",
+        "Searching for a friendly colony connection…",
+        "Beginning the journey across the digital glacier…",
+        "Throwing a signal flare into the snowy wilderness…",
+        "The explorer is knocking on the frozen network door…",
+        "Building a pathway through the ice fields…",
+        "Broadcasting a call across the polar winds…",
+        "Looking for nearby penguin colonies…",
+        "Crossing the digital mountain pass…",
+        "Attempting to reach the frozen meshlands…",
+        "Scout unit is navigating the icy channels…",
+        "Establishing a route through the glacier network…",
+        "Launching a connection probe into the snowstorm…",
+        "Searching for Reticulum footprints…",
+        "Opening a tunnel through the frozen frontier…",
+        "Sending an expedition request into the wild…",
+        "Penguin messenger is traveling across the ice…"
+    ]
 
-        static func random() -> String {
+    static let connectionEstablished = [
+        "Penguin colony link established!",
+        "The ice bridge has been successfully formed…",
+        "Secure communication tunnel carved through the glacier…",
+        "IceNomad has reached the frozen frontier…",
+        "The expedition route is now open…",
+        "Connected to the frozen meshlands…",
+        "Scout has returned with good news!",
+        "Signal strength is stable across the ice…",
+        "The glacier gateway is unlocked…",
+        "Communication winds are flowing smoothly…",
+        "A new path through the snow has opened…",
+        "Reticulum handshake completed successfully…",
+        "The colony is connected and ready…",
+        "Frozen channels are now active…",
+        "The ice tunnel has been secured…",
+        "Expedition communications are online…",
+        "Digital footprints confirmed…",
+        "The frozen network welcomes IceNomad…",
+        "The penguin fleet has joined the mesh…",
+        "Connection crystallized successfully…",
+        "The bridge between ice worlds is complete…"
+    ]
 
-            var newMessage: String
+    static let receivingAnnounces = [
+        "Listening for penguin scouts across the ice…",
+        "Gathering whispers from distant glaciers…",
+        "Collecting announcements from frozen territories…",
+        "Detecting fresh footprints in the snow…",
+        "Mapping nearby explorers across the tundra…",
+        "Scanning the horizon for friendly signals…",
+        "The colony radio is listening…",
+        "Receiving messages carried by the polar winds…",
+        "Updating the IceNomad explorer map…",
+        "New travelers are appearing on the ice sheet…",
+        "Tracking distant signals beyond the mountains…",
+        "Learning about nearby frozen outposts…",
+        "Penguin scouts are reporting home…",
+        "Listening for voices across the glacier…",
+        "Gathering node sightings from the wilderness…",
+        "Following communication trails through the snow…",
+        "Monitoring the frozen airwaves…",
+        "Expanding the expedition map…",
+        "Discovering new members of the colony…",
+        "Recording signals from the frozen frontier…"
+    ]
 
-            repeat {
+    static let appReady = [
+        "IceNomad is ready for exploration!",
+        "The frozen frontier awaits your journey…",
+        "All ice bridges are stable and operational…",
+        "Expedition systems are fully online…",
+        "Welcome back, explorer. The colony awaits…",
+        "IceNomad has thawed and is ready to roam…",
+        "The penguin crew is ready for adventure…",
+        "Navigation systems are locked and loaded…",
+        "The glacier gates are open…",
+        "Your journey across the mesh begins now…",
+        "The snow trails are waiting…",
+        "IceNomad is connected to the world beyond…",
+        "Explorer mode activated…",
+        "The frozen wilderness is yours to discover…",
+        "Communication crystals are glowing…",
+        "The northern network is standing by…",
+        "Your expedition pack is complete…",
+        "Signals are clear. The colony is online…",
+        "IceNomad has officially taken flight…",
+        "Welcome to the endless frozen frontier…",
+        "Adventure awaits beyond the next snow ridge…"
+    ]
 
-                newMessage = messages.randomElement() ?? "Loading..."
+    // Keeps track of the last message shown, so consecutive picks never repeat.
+    private static var lastMessage: String?
 
-            } while newMessage == lastMessage
+    static func random(from pool: [String]) -> String {
 
-            lastMessage = newMessage
+        var newMessage: String
 
-            return newMessage
+        repeat {
 
-        }
+            newMessage = pool.randomElement() ?? "Loading…"
 
+        } while newMessage == lastMessage && pool.count > 1
+
+        lastMessage = newMessage
+
+        return newMessage
     }
+}

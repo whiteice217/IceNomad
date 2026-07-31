@@ -14,6 +14,7 @@
 import Foundation
 import Combine
 import Security
+import OSLog
 
 final class IdentityStore: ObservableObject {
 
@@ -70,7 +71,7 @@ final class IdentityStore: ObservableObject {
         let status = SecItemAdd(attributes as CFDictionary, nil)
 
         if status != errSecSuccess {
-            print("⚠️ Failed to save identity to Keychain, status: \(status)")
+            Log.identity.fault("Failed to save identity to Keychain, status: \(status, privacy: .public) — this identity will not survive a reinstall")
         }
     }
 

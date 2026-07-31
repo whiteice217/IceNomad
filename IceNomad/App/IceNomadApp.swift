@@ -12,6 +12,10 @@ struct IceNomadApp: App {
 
     @StateObject private var startup = StartupManager()
 
+    init() {
+        SystemMonitor.shared.start()
+    }
+
 
     var body: some Scene {
 
