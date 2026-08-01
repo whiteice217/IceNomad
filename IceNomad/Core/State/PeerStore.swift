@@ -74,7 +74,7 @@ final class PeerStore: ObservableObject {
     private init() {
 
         let saved = UserDefaults.standard.integer(forKey: Self.maxAnnouncesKey)
-        maxAnnounces = saved == 0 ? Self.defaultMaxAnnounces : saved
+        maxAnnouncesPerCategory = saved == 0 ? Self.defaultMaxAnnounces : saved
     }
 
 
@@ -98,11 +98,18 @@ final class PeerStore: ObservableObject {
         lastSeenByHex[hex] ?? .distantPast
     }
 
-    /// Caps how many announced peers we keep around — oldest (by
-    /// lastSeen) are evicted first once this is exceeded.
-    @Published var maxAnnounces: Int {
+    /// Caps how many announced peers we keep, **per category** (LXMF /
+    /// MU Sites / Other — the same three buckets Announce's own scope
+    /// picker uses) — not one shared pool across all of them. A single
+    /// shared cap meant a busy relay's flood of unrelated real-world
+    /// "Other" traffic (confirmed live: ~1 new distinct peer/second)
+    /// could crowd out and evict LXMF/MU-Site peers you actually care
+    /// about, even with a generous overall number. Oldest (by lastSeen)
+    /// within a category is evicted first once *that category* exceeds
+    /// this — other categories are untouched.
+    @Published var maxAnnouncesPerCategory: Int {
         didSet {
-            UserDefaults.standard.set(maxAnnounces, forKey: Self.maxAnnouncesKey)
+            UserDefaults.standard.set(maxAnnouncesPerCategory, forKey: Self.maxAnnouncesKey)
             enforceLimit()
         }
     }
@@ -286,26 +293,35 @@ final class PeerStore: ObservableObject {
     }
 
 
-    /// Evicts the oldest (by lastSeen) announced peers once over the
-    /// limit — saved contacts and pinned (actively-connecting-to) peers
-    /// are never evicted, since losing their cached public key would
-    /// silently break messaging or connecting to them. Sorts by
-    /// `lastSeenByHex`, not any field on `Peer` itself — a peer can be
-    /// re-announcing constantly with nothing else changing (see
-    /// `upsert`), so `Peer` itself carries no lastSeen of its own
-    /// anymore; the side table is the only accurate record of recency.
+    /// Evicts the oldest (by lastSeen) announced peers once a *category*
+    /// (LXMF / MU Sites / Other — same partition as Announce's own scope
+    /// picker) exceeds `maxAnnouncesPerCategory`, independently per
+    /// category — a flood of "Other" traffic can't evict LXMF/MU-Site
+    /// peers, and vice versa. Saved contacts and pinned
+    /// (actively-connecting-to) peers are never evicted, since losing
+    /// their cached public key would silently break messaging or
+    /// connecting to them. Sorts by `lastSeenByHex`, not any field on
+    /// `Peer` itself — a peer can be re-announcing constantly with
+    /// nothing else changing (see `upsert`), so `Peer` itself carries no
+    /// lastSeen of its own anymore; the side table is the only accurate
+    /// record of recency.
     private func enforceLimit() {
 
-        guard peers.count > maxAnnounces else {
-            return
+        var hexesToEvict: Set<String> = []
+
+        for categoryPeers in categorized(peers) {
+
+            guard categoryPeers.count > maxAnnouncesPerCategory else {
+                continue
+            }
+
+            let excess = categoryPeers.count - maxAnnouncesPerCategory
+            let evictionCandidates = categoryPeers
+                .filter { !ContactStore.shared.isContact($0.destinationHashHex) && !pinnedHashes.contains($0.destinationHashHex) }
+                .sorted { lastSeen(for: $0.destinationHashHex) < lastSeen(for: $1.destinationHashHex) }
+
+            hexesToEvict.formUnion(evictionCandidates.prefix(excess).map { $0.destinationHashHex })
         }
-
-        let excess = peers.count - maxAnnounces
-        let evictionCandidates = peers
-            .filter { !ContactStore.shared.isContact($0.destinationHashHex) && !pinnedHashes.contains($0.destinationHashHex) }
-            .sorted { lastSeen(for: $0.destinationHashHex) < lastSeen(for: $1.destinationHashHex) }
-
-        let hexesToEvict = Set(evictionCandidates.prefix(excess).map { $0.destinationHashHex })
 
         guard !hexesToEvict.isEmpty else {
             return
@@ -320,5 +336,31 @@ final class PeerStore: ObservableObject {
         for (i, peer) in peers.enumerated() {
             index[peer.destinationHashHex] = i
         }
+    }
+
+
+    /// Splits into the same three buckets AnnounceView's own scope
+    /// picker uses (`Peer.isNomadNetNode`/`isLXMFPeer` are real positive
+    /// checks against each aspect's actual expected name hash, not a
+    /// guess) — mutually exclusive by construction, since a peer's
+    /// nameHash matches at most one of the two real aspects.
+    private func categorized(_ peers: [Peer]) -> [[Peer]] {
+
+        var nodes: [Peer] = []
+        var lxmf: [Peer] = []
+        var other: [Peer] = []
+
+        for peer in peers {
+
+            if peer.isNomadNetNode {
+                nodes.append(peer)
+            } else if peer.isLXMFPeer {
+                lxmf.append(peer)
+            } else {
+                other.append(peer)
+            }
+        }
+
+        return [nodes, lxmf, other]
     }
 }

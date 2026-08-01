@@ -196,7 +196,7 @@ struct AnnounceView: View {
                             Label("Send Announce Now", systemImage: "megaphone")
                         }
 
-                        Picker("Keep Announces", selection: $peerStore.maxAnnounces) {
+                        Picker("Keep Announces (per Category)", selection: $peerStore.maxAnnouncesPerCategory) {
 
                             ForEach(PeerStore.announceLimitOptions, id: \.self) { limit in
                                 Text("\(limit)").tag(limit)
