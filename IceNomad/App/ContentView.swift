@@ -58,6 +58,10 @@ struct ContentView: View {
     @ObservedObject private var messageStore = MessageStore.shared
     @ObservedObject private var bannerCenter = NotificationBannerCenter.shared
 
+    private static let hasCompletedWelcomeKey = "has_completed_welcome"
+
+    @State private var isShowingWelcome = !UserDefaults.standard.bool(forKey: ContentView.hasCompletedWelcomeKey)
+
     var body: some View {
 
         ZStack(alignment: .top) {
@@ -136,6 +140,13 @@ struct ContentView: View {
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: bannerCenter.current)
+        .fullScreenCover(isPresented: $isShowingWelcome) {
+
+            WelcomeView {
+                UserDefaults.standard.set(true, forKey: Self.hasCompletedWelcomeKey)
+                isShowingWelcome = false
+            }
+        }
     }
 
 
