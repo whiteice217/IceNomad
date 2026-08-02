@@ -92,14 +92,30 @@ struct MessagesView: View {
                     } label: {
                         Image(systemName: "person.2")
                     }
-                    .popover(isPresented: $isShowingContacts, arrowEdge: .top) {
+                    // A .popover here (as this used to be) is anchored to
+                    // the ToolbarItem's underlying UIBarButtonItem on Mac
+                    // Catalyst, and that specific combination crashes
+                    // inside UIKitCore every time — confirmed via a real
+                    // crash report (SIGTRAP in
+                    // UIKeyboardSceneDelegate/UIPresentationController
+                    // internals, zero app frames), reproduced even after
+                    // deferring the state change by a run-loop tick, which
+                    // ruled out a timing race. The two other popovers in
+                    // this app (BrowserView's site/favorites dropdowns)
+                    // don't crash because they're anchored to a plain
+                    // inline Button, not a toolbar item. .sheet sidesteps
+                    // the bug entirely — same mechanism New Message
+                    // already uses safely from this same toolbar.
+                    .sheet(isPresented: $isShowingContacts) {
 
                         ContactsManagerPopover(contactStore: contactStore) { hex in
 
                             isShowingContacts = false
                             path.append(hex)
+
+                        } onDone: {
+                            isShowingContacts = false
                         }
-                        .presentationCompactAdaptation(.popover)
                     }
                 }
 

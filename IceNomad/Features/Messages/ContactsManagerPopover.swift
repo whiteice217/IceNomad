@@ -14,7 +14,13 @@ import SwiftUI
 struct ContactsManagerPopover: View {
 
     @ObservedObject var contactStore: ContactStore
+    @ObservedObject private var historyStore = MessageHistoryStore.shared
     let onSelect: (String) -> Void
+
+    /// Set when presented as a sheet (see MessagesView) rather than
+    /// embedded inline — draws a close button since a Mac Catalyst sheet
+    /// has no swipe-to-dismiss.
+    var onDone: (() -> Void)? = nil
 
     @State private var renamingHex: String?
     @State private var renameText = ""
@@ -27,6 +33,17 @@ struct ContactsManagerPopover: View {
         VStack(alignment: .leading, spacing: 0) {
 
             HStack {
+
+                if let onDone {
+
+                    Button {
+                        onDone()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 Text("Contacts")
                     .font(.headline)
@@ -93,8 +110,16 @@ struct ContactsManagerPopover: View {
                     .padding()
                 }
             }
+
+            if !historyOnlyEntries.isEmpty {
+
+                historySection
+            }
         }
-        .frame(width: 300)
+        // Was a fixed 300pt for the old popover chrome — now presented as
+        // a .sheet (see MessagesView), which needs to flex to fill an
+        // iPhone-width screen rather than leaving empty space on the sides.
+        .frame(maxWidth: 400)
         .alert("Rename Contact", isPresented: renamingBinding) {
 
             TextField("Name", text: $renameText)
@@ -116,6 +141,118 @@ struct ContactsManagerPopover: View {
             get: { renamingHex != nil },
             set: { if !$0 { renamingHex = nil } }
         )
+    }
+
+
+    /// Anyone you've messaged who isn't already a saved Contact — an
+    /// explicit Contact already appears above, so repeating them here
+    /// would just be clutter. Newest-added-to-history first.
+    private var historyOnlyEntries: [MessageHistoryEntry] {
+
+        historyStore.entries
+            .filter { !contactStore.isContact($0.destinationHashHex) }
+            .sorted { $0.firstSeen > $1.firstSeen }
+    }
+
+
+    // MARK: - History
+
+    private var historySection: some View {
+
+        VStack(alignment: .leading, spacing: 0) {
+
+            Divider()
+
+            HStack {
+
+                Text("History")
+                    .font(.headline)
+
+                Spacer()
+
+                Button("Clear All", role: .destructive) {
+                    historyStore.clearAll()
+                }
+                .font(.subheadline)
+            }
+            .padding(.horizontal)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+
+            Text("Everyone you've exchanged messages with, even if that conversation was deleted. Stays here until you clear it.")
+                .font(.caption)
+                .foregroundStyle(Theme.textSecondary)
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+
+            ScrollView {
+
+                LazyVStack(alignment: .leading, spacing: 0) {
+
+                    ForEach(historyOnlyEntries) { entry in
+
+                        historyRow(entry)
+
+                        Divider()
+                            .padding(.leading)
+                    }
+                }
+            }
+            .frame(maxHeight: 240)
+        }
+    }
+
+
+    private func historyRow(_ entry: MessageHistoryEntry) -> some View {
+
+        let hex = entry.destinationHashHex
+
+        return HStack(spacing: 8) {
+
+            Button {
+                onSelect(hex)
+            } label: {
+
+                VStack(alignment: .leading, spacing: 2) {
+
+                    Text(contactStore.displayName(for: hex))
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+
+                    Text(hex)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+
+            Menu {
+
+                Button {
+                    contactStore.addContact(hex: hex)
+                } label: {
+                    Label("Add to Contacts", systemImage: "person.badge.plus")
+                }
+
+                Button(role: .destructive) {
+                    historyStore.clear(hex: hex)
+                } label: {
+                    Label("Clear from History", systemImage: "trash")
+                }
+
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title2)
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 
 

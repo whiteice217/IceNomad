@@ -203,23 +203,6 @@ struct ChatView: View {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .strokeBorder(Theme.divider, lineWidth: 1)
                 )
-                // A vertical-axis TextField treats Return as "insert a
-                // newline" by default with no built-in way to distinguish
-                // plain Return from Shift+Return — `onSubmit` never fires
-                // at all. Intercepting the key press ourselves gets the
-                // desktop-chat convention Bryan asked for (Mac keyboard:
-                // Return sends, Shift+Return inserts a newline) without
-                // giving up multi-line composing.
-                .onKeyPress(phases: .down) { press in
-
-                    guard press.key == .return, !press.modifiers.contains(.shift) else {
-                        return .ignored
-                    }
-
-                    sendDraft()
-                    return .handled
-                }
-
             Button {
                 sendDraft()
             } label: {
@@ -232,6 +215,18 @@ struct ChatView: View {
             .buttonStyle(.plain)
             .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
+            // A vertical-axis TextField treats Return as "insert a
+            // newline" with no built-in way to distinguish plain Return
+            // from Shift+Return, and intercepting the keystroke with
+            // .onKeyPress on the TextField itself never actually fired —
+            // the field's own multi-line editing swallows Return before
+            // it bubbles up. A keyboard shortcut on the Send button
+            // itself is the reliable way to bind plain Return to it: it
+            // works through the window's key-equivalent responder chain
+            // rather than needing the focused text field to forward the
+            // event, and (being unmodified) doesn't intercept Shift+Return,
+            // which still inserts a newline normally.
+            .keyboardShortcut(.return, modifiers: [])
         }
         .padding(.horizontal)
         .padding(.vertical, 10)

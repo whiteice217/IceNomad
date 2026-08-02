@@ -228,6 +228,11 @@ final class MessageStore: ObservableObject {
 
         messagesByPeer[hex, default: []].append(message)
         persist()
+
+        // Recorded independent of the conversation itself, so it survives
+        // deleteConversation(for:) — this is the "History" log in the
+        // Contacts popover, not a view over messagesByPeer.
+        MessageHistoryStore.shared.recordActivity(hex: hex)
     }
 
 
