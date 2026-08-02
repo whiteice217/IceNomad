@@ -192,33 +192,53 @@ final class BrowserState: ObservableObject {
 
         LinkManager.shared.connect(to: ref.destinationHashHex) { [weak self] connectResult in
 
-            guard let self, self.loadToken == token else {
-                return
-            }
+            // These completions arrive from wherever the underlying
+            // transport's own receive callback runs — TCPClient starts
+            // its NWConnection on DispatchQueue.global(), and that thread
+            // choice propagates all the way up through ReticulumLink/
+            // LinkManager unless something along the way explicitly hops
+            // back to main. Mutating @Published state off the main thread
+            // is undefined behavior for SwiftUI — it can appear to mostly
+            // work on Mac Catalyst's more forgiving scheduling while
+            // failing outright on real iOS hardware (confirmed: this was
+            // exactly the split symptom — address-bar-adjacent fixes were
+            // fine on Mac, this one wasn't, until this landed). Hopping
+            // here guarantees correctness regardless of which thread the
+            // callback actually arrives on, rather than trusting every
+            // layer beneath this to already be on main.
+            DispatchQueue.main.async {
 
-            switch connectResult {
+                guard let self, self.loadToken == token else {
+                    return
+                }
 
-            case .failure(let error):
-                self.isLoading = false
-                self.content = BrowserState.errorContent(for: ref, reason: BrowserState.describe(error))
+                switch connectResult {
 
-            case .success(let link):
-
-                link.request(path: ref.path) { [weak self] requestResult in
-
-                    guard let self, self.loadToken == token else {
-                        return
-                    }
-
+                case .failure(let error):
                     self.isLoading = false
+                    self.content = BrowserState.errorContent(for: ref, reason: BrowserState.describe(error))
 
-                    switch requestResult {
+                case .success(let link):
 
-                    case .success(let data):
-                        self.content = String(data: data, encoding: .utf8) ?? BrowserState.binaryContent(byteCount: data.count)
+                    link.request(path: ref.path) { [weak self] requestResult in
 
-                    case .failure(let error):
-                        self.content = BrowserState.errorContent(for: ref, reason: BrowserState.describe(error))
+                        DispatchQueue.main.async {
+
+                            guard let self, self.loadToken == token else {
+                                return
+                            }
+
+                            self.isLoading = false
+
+                            switch requestResult {
+
+                            case .success(let data):
+                                self.content = String(data: data, encoding: .utf8) ?? BrowserState.binaryContent(byteCount: data.count)
+
+                            case .failure(let error):
+                                self.content = BrowserState.errorContent(for: ref, reason: BrowserState.describe(error))
+                            }
+                        }
                     }
                 }
             }

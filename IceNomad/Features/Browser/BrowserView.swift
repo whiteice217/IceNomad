@@ -122,16 +122,55 @@ struct BrowserView: View {
                                 }
                                 .padding()
                             }
+                            // A ScrollView centers content that's narrower
+                            // than its own viewport by default, rather
+                            // than pinning it to the top-leading corner —
+                            // barely noticeable for a full page, but
+                            // glaring for anything short (the "Fetching…"
+                            // loading message, a short page, a wide Mac
+                            // window showing terminal-width content). Only
+                            // a *minimum* width/height, not maxWidth:
+                            // .infinity — that would fight the ScrollView's
+                            // own sizing for content that's genuinely
+                            // wider/taller than the viewport (a wide art
+                            // banner still needs to pan, a long page still
+                            // needs to scroll), min just guarantees short
+                            // content still fills out to the corner.
+                            .frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
                         }
                         .background(Theme.background)
                         .scrollDismissesKeyboard(.immediately)
                         .refreshable {
                             browserState.refresh()
                         }
-                        .onChange(of: browserState.isLoading) { _, isLoading in
+                        .onChange(of: browserState.content) { _, _ in
 
-                            guard isLoading else { return }
-                            scrollProxy.scrollTo("top", anchor: .topLeading)
+                            // Was keyed off isLoading turning true — but
+                            // isLoading flips back to false in a separate
+                            // statement *before* content actually gets set
+                            // to the real page (see BrowserState.loadPage),
+                            // so that only ever caught the moment the tiny
+                            // "Fetching…" placeholder appeared, never the
+                            // moment real content actually arrived — which
+                            // is when a reset is actually needed. content
+                            // itself changes on every one of those
+                            // transitions (loading placeholder, real page,
+                            // error), so it's the trigger that actually
+                            // means "something new just got laid out."
+                            //
+                            // Deferred a tick — calling scrollTo in the
+                            // same synchronous pass as the content change
+                            // races SwiftUI's own layout pass for the
+                            // freshly-changed MicronView (new content size
+                            // isn't known yet), so the scroll lands against
+                            // stale geometry and silently does nothing.
+                            // Confirmed on a real device specifically —
+                            // Mac Catalyst's more immediate execution
+                            // apparently doesn't expose the race the same
+                            // way physical hardware does.
+                            DispatchQueue.main.async {
+                                scrollProxy.scrollTo("top", anchor: .topLeading)
+                            }
                         }
                     }
                 }
@@ -177,6 +216,29 @@ struct BrowserView: View {
 
     private var addressRow: some View {
 
+        #if targetEnvironment(macCatalyst)
+        // Mac has a real toolbar-width field to work with — no need for
+        // the iPhone sheet workaround below, just edit it in place.
+        TextField("Node hash : path", text: $addressDraft)
+            .font(.system(.footnote, design: .monospaced))
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .onAppear {
+                addressDraft = browserState.addressText
+            }
+            .onChange(of: browserState.addressText) { _, newValue in
+                // Keep the field in sync when navigation happens some
+                // other way (a tapped link, Back/Forward, a favorite) —
+                // don't leave it showing a stale address.
+                addressDraft = newValue
+            }
+            .onSubmit {
+                browserState.addressText = addressDraft
+                browserState.navigateFromAddressBar()
+            }
+        #else
         // Tapping opens a full-size sheet to edit the address — the
         // toolbar has nowhere near enough width to show or edit a whole
         // "hash:/path" address inline without constantly scrolling the
@@ -197,6 +259,7 @@ struct BrowserView: View {
                 .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
+        #endif
     }
 
 

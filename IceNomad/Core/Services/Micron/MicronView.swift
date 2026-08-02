@@ -43,10 +43,44 @@ struct MicronView: View {
                 groupView(for: group)
 
                 if index < groups.count - 1 {
-                    Spacer().frame(height: spacing(after: group))
+                    // A plain Spacer() here is fully transparent — fine
+                    // normally, but on a page with a uniform background it
+                    // left a strip of the app's own background showing
+                    // through between every paragraph. Fill it with
+                    // whatever color the group just above actually used.
+                    Rectangle()
+                        .fill(uniformBackground(of: group) ?? Color.clear)
+                        .frame(height: spacing(after: group))
                 }
             }
         }
+        // Belt-and-suspenders on top of the per-row/per-gap fills above:
+        // SwiftUI can leave a sub-pixel seam between two independently-
+        // sized UIViewRepresentables (each row is its own UITextView) even
+        // when both report backgrounds that agree — invisible on the old
+        // uniformly-dark page, but a glaring thin line of the app's own
+        // background once a page actually commits to one color throughout.
+        // Painting the same color behind the whole stack means any such
+        // seam shows the *right* color no matter where it comes from,
+        // rather than chasing exact pixel alignment.
+        .background(documentUniformBackground ?? Color.clear)
+    }
+
+
+    /// Same "does every span agree" check as a single row/group, but
+    /// across the entire parsed document — only non-nil for a page that
+    /// commits to one background color throughout (the common case this
+    /// exists for), not one that legitimately changes color partway
+    /// through (that page's own per-row fills already handle themselves).
+    private var documentUniformBackground: Color? {
+
+        let backgrounds = document.lines.flatMap(\.spans).compactMap(\.background)
+
+        guard let first = backgrounds.first else {
+            return nil
+        }
+
+        return backgrounds.allSatisfy { $0 == first } ? first : nil
     }
 
 
@@ -111,6 +145,22 @@ struct MicronView: View {
             }
         }
         .padding(.leading, group[0].indent)
+    }
+
+
+    /// Same "does every span agree" check MicronTextView uses for a single
+    /// row, extended to a whole group of lines — lets the spacing gap
+    /// right after this group carry the same background forward instead
+    /// of leaving a transparent seam between paragraphs on a colored page.
+    private func uniformBackground(of group: [MicronLine]) -> Color? {
+
+        let backgrounds = group.flatMap(\.spans).compactMap(\.background)
+
+        guard let first = backgrounds.first else {
+            return nil
+        }
+
+        return backgrounds.allSatisfy { $0 == first } ? first : nil
     }
 
 

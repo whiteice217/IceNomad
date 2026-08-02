@@ -73,6 +73,25 @@ struct MicronTextView: UIViewRepresentable {
         return Double(artCharacters.count) / Double(text.unicodeScalars.count) > 0.15
     }
 
+    /// Whenever every span carrying an explicit background agrees on the
+    /// same color, that's the author's intent for the whole row (a page
+    /// that sets `` `Bxxx `` once and never resets it, expecting the
+    /// entire line — not just the glyphs — to be that color). Spans with
+    /// no background at all don't break the match; a line that mixes two
+    /// genuinely different background colors falls back to nil, leaving
+    /// the old glyph-tight per-span painting as-is rather than guessing
+    /// which one should "win" the whole row.
+    private var uniformRowBackground: Color? {
+
+        let backgrounds = spans.compactMap(\.background)
+
+        guard let first = backgrounds.first else {
+            return nil
+        }
+
+        return backgrounds.allSatisfy { $0 == first } ? first : nil
+    }
+
     func makeUIView(context: Context) -> UITextView {
 
         let textView = UITextView()
@@ -99,6 +118,12 @@ struct MicronTextView: UIViewRepresentable {
     }
 
     func updateUIView(_ textView: UITextView, context: Context) {
+
+        // Fills the view's actual frame, not just the glyph-tight regions
+        // the per-span .backgroundColor attribute below can reach — this
+        // is what makes a page-wide `` `Bxxx `` cover the full row instead
+        // of leaving gaps past the text and around short lines.
+        textView.backgroundColor = uniformRowBackground.map(UIColor.init) ?? .clear
 
         var links: [MicronLink] = []
         let attributed = NSMutableAttributedString()
@@ -129,7 +154,13 @@ struct MicronTextView: UIViewRepresentable {
                 links.append(link)
 
                 attributes[.link] = URL(string: "micron://\(index)")!
-                attributes[.foregroundColor] = UIColor(Theme.accent)
+                // A page that colors its own links (`` `Fxxx `` around a
+                // `` `[Label`target] ``) should see that color, same as it
+                // would for plain text — Theme.accent is only a fallback
+                // for links that never specified one, not a hard override.
+                if span.foreground == nil {
+                    attributes[.foregroundColor] = UIColor(Theme.accent)
+                }
                 attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
             }
 
@@ -140,10 +171,17 @@ struct MicronTextView: UIViewRepresentable {
         paragraphStyle.alignment = nsTextAlignment(alignment)
         attributed.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: attributed.length))
 
-        // Links get the accent color/underline via .link's own default
-        // UITextView styling too — explicit attributes above just make
-        // sure it's consistent even before/without tint customization.
-        textView.linkTextAttributes = [.foregroundColor: UIColor(Theme.accent)]
+        // UITextView.linkTextAttributes isn't nil by default even if this
+        // is never touched — Apple's own docs: it defaults to
+        // {foregroundColor: tintColor}, applied on top of the attributed
+        // string's own inline attributes for any `.link` range. That
+        // default alone was enough to keep overriding a page's own link
+        // color back to the tint (a blue, same as Theme.accent) — setting
+        // it to an explicitly empty dictionary is what actually suppresses
+        // it, not just refraining from assigning it ourselves. Each span
+        // already carries the right color, explicit or fallback; nothing
+        // else should touch it.
+        textView.linkTextAttributes = [:]
 
         textView.attributedText = attributed
         textView.textContainer.lineBreakMode = isFixedWidthArt ? .byClipping : .byWordWrapping
@@ -164,10 +202,36 @@ struct MicronTextView: UIViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
 
         if isFixedWidthArt {
-            return uiView.attributedText.size()
+
+            let natural = uiView.attributedText.size()
+
+            // Art still reports (and stays laid out at) its own natural
+            // width when that's wider than the viewport — a banner needs
+            // to keep panning like an image, not get squashed. But when
+            // it's narrower and carries a background color, the reported
+            // width needs to reach at least the viewport edge too, or
+            // there's nothing painted in the leftover strip past the
+            // logo — the app's own background was showing through there.
+            guard uniformRowBackground != nil else {
+                return natural
+            }
+
+            return CGSize(width: max(natural.width, availableWidth), height: natural.height)
         }
 
-        return uiView.sizeThatFits(CGSize(width: availableWidth, height: .greatestFiniteMagnitude))
+        let fitted = uiView.sizeThatFits(CGSize(width: availableWidth, height: .greatestFiniteMagnitude))
+
+        // A short line's natural width is narrower than the viewport —
+        // fine normally, but it means a row background would stop right
+        // after the text instead of reaching the page edge. Only widen
+        // when there's actually a background to carry all the way across;
+        // leaving plain text at its natural width avoids changing layout
+        // anywhere else on the page.
+        guard uniformRowBackground != nil else {
+            return fitted
+        }
+
+        return CGSize(width: availableWidth, height: fitted.height)
     }
 
     func makeCoordinator() -> Coordinator {
