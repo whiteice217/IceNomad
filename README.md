@@ -34,15 +34,13 @@ Connect over TCP to a remote transport node, or go direct over LoRa with an RNod
 - **Adaptive light/dark theme**, native on both iOS and Mac
 - **First-launch onboarding** with a randomly generated penguin-themed identity, so you're never staring at a blank name field
 
-## Coming to Mac
+## Try It on Mac
 
-IceNomad now runs as a genuinely native Mac app, built on the exact same SwiftUI codebase as iOS via Mac Catalyst — not a wrapper, not a separate port. It's in active testing right now, with a public downloadable build to follow once notarization is sorted out.
+IceNomad now runs as a genuinely native Mac app, built on the exact same SwiftUI codebase as iOS via Mac Catalyst — not a wrapper, not a separate port. It's in active testing right now.
 
-The Mac build unlocks a couple of things iOS can't do at all, since they need direct hardware access iOS doesn't allow third-party apps:
-- **RNode over USB serial**, for a wired connection straight to your radio
-- **Firmware Tools**, for detecting a connected RNode board over USB
+**The easiest way to run it today is to build it yourself** — see [BUILDING.md](BUILDING.md). It's a 10-minute process (mostly Xcode installing) and sidesteps macOS's Gatekeeper warnings entirely, since a locally-built app never picks up the "downloaded from the internet" flag that triggers them. No paid developer account, no security prompts to fight.
 
-Want early access? Reach out at [wanderingpenguin@icenomad.net](mailto:wanderingpenguin@icenomad.net).
+A downloadable DMG is also available for testers — reach out at [wanderingpenguin@icenomad.net](mailto:wanderingpenguin@icenomad.net) for access. Since it isn't notarized yet, macOS will show an "unidentified developer" warning on first launch — right-click the app and choose **Open** (instead of double-clicking) to get past it.
 
 ## Roadmap
 
