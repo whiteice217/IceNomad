@@ -42,7 +42,7 @@ struct MUSitesDropdown: View {
 
         VStack(alignment: .leading, spacing: 0) {
 
-            Text("MU Sites")
+            Text("NomadNet")
                 .font(.headline)
                 .padding(.horizontal)
                 .padding(.top, 12)

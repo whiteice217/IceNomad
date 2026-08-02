@@ -42,6 +42,19 @@ struct Peer: Identifiable {
         }
     }
 
+    /// Same idea as interfaceColor, but as text — color alone isn't a
+    /// reliable way to communicate "heard over LoRa vs. a TCP gateway,"
+    /// especially for anyone colorblind or just not aware of the
+    /// convention. nil if we don't know how we heard from them.
+    var interfaceLabel: String? {
+
+        switch lastInterfaceType {
+        case .rNode: return "RNode"
+        case .tcpClient: return "TCP"
+        case nil: return nil
+        }
+    }
+
     /// An announce's `nameHash` is a truncated hash of the destination's
     /// full aspect name — every peer on a shared public network isn't
     /// necessarily running IceNomad or even Reticulum-flavored LXMF/

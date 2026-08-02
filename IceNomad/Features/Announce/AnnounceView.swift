@@ -16,7 +16,15 @@ import SwiftUI
 private enum PeerScope: String, CaseIterable, Identifiable {
 
     case lxmf = "LXMF(Messages)"
-    case nodes = "MU Sites"
+    case nodes = "NomadNet"
+    // Cuts across the two scopes above rather than being a third *kind*
+    // of destination — shows anyone heard directly over a connected
+    // RNode, split into LXMF/NomadNet sections (see the body's loraSections),
+    // instead of blended into the flat contact/named/unnamed layout the
+    // other scopes use. Bryan's ask: a dedicated place to check "is
+    // anything actually coming in over LoRa," not just a filter buried
+    // in a menu.
+    case lora = "LoRa"
     // Named "Unknown" rather than "Other" — "Unnamed Peers" is already
     // used elsewhere on this screen for a different thing (a peer with
     // no announced display name), and calling this scope "Other" implied
@@ -27,6 +35,30 @@ private enum PeerScope: String, CaseIterable, Identifiable {
     case other = "Unknown"
 
     var id: String { rawValue }
+}
+
+
+/// Which interface most recently delivered a peer's announce — separate
+/// from PeerScope (LXMF/Nodes/Unknown), which is about what *kind* of
+/// destination a peer is, not how you heard from it. Added so a peer
+/// heard over a directly-connected RNode (LoRa) can be told apart from
+/// one only reachable via a TCP gateway relay, e.g. rns.icenomad.net.
+private enum PeerSourceFilter: String, CaseIterable, Identifiable {
+
+    case all = "All"
+    case rnode = "RNode"
+    case tcp = "TCP"
+
+    var id: String { rawValue }
+
+    func matches(_ peer: Peer) -> Bool {
+
+        switch self {
+        case .all: return true
+        case .rnode: return peer.lastInterfaceType == .rNode
+        case .tcp: return peer.lastInterfaceType == .tcpClient
+        }
+    }
 }
 
 
@@ -67,6 +99,7 @@ struct AnnounceView: View {
     @State private var chatTarget: String?
     @State private var sortOption: PeerSortOption = .lastHeard
     @State private var scope: PeerScope = .lxmf
+    @State private var sourceFilter: PeerSourceFilter = .all
     @State private var searchText = ""
     @State private var didSendAnnounce = false
 
@@ -103,6 +136,12 @@ struct AnnounceView: View {
                     } else {
 
                         List {
+
+                        if scope == .lora {
+
+                            loraSections
+
+                        } else {
 
                         if !contactPeers.isEmpty {
 
@@ -157,6 +196,7 @@ struct AnnounceView: View {
                                     .foregroundStyle(Theme.textSecondary)
                                 }
                             }
+                        }
                         }
                     }
                     .listRowSpacing(12)
@@ -222,8 +262,22 @@ struct AnnounceView: View {
                             }
                         }
 
+                        // Which interface most recently heard a peer —
+                        // separate from Scope above (that's what kind of
+                        // destination a peer is, not how you heard it).
+                        // Lets a directly-connected RNode be told apart
+                        // from anything only reachable via a TCP gateway
+                        // relay like rns.icenomad.net.
+                        Picker("Heard Via", selection: $sourceFilter) {
+
+                            ForEach(PeerSourceFilter.allCases) { filter in
+                                Text(filter.rawValue).tag(filter)
+                            }
+                        }
+
                     } label: {
-                        Image(systemName: "arrow.up.arrow.down.circle")
+                        Image(systemName: sourceFilter == .all ? "arrow.up.arrow.down.circle" : "arrow.up.arrow.down.circle.fill")
+                            .foregroundStyle(sourceFilter == .all ? Theme.textPrimary : Theme.accent)
                     }
                 }
             }
@@ -235,18 +289,28 @@ struct AnnounceView: View {
 
     private var scopedPeers: [Peer] {
 
+        let byScope: [Peer]
+
         switch scope {
-        case .nodes: return peerStore.peers.filter(\.isNomadNetNode)
-        case .lxmf: return peerStore.peers.filter(\.isLXMFPeer)
-        case .other: return peerStore.peers.filter { !$0.isNomadNetNode && !$0.isLXMFPeer }
+        case .nodes: byScope = peerStore.peers.filter(\.isNomadNetNode)
+        case .lxmf: byScope = peerStore.peers.filter(\.isLXMFPeer)
+        case .lora: byScope = peerStore.peers.filter { $0.lastInterfaceType == .rNode && ($0.isLXMFPeer || $0.isNomadNetNode) }
+        case .other: byScope = peerStore.peers.filter { !$0.isNomadNetNode && !$0.isLXMFPeer }
         }
+
+        guard sourceFilter != .all else {
+            return byScope
+        }
+
+        return byScope.filter(sourceFilter.matches)
     }
 
     private var emptyStateTitle: String {
 
         switch scope {
-        case .nodes: return "No MU Sites Yet"
+        case .nodes: return "No NomadNet Nodes Yet"
         case .lxmf: return "No LXMF Peers Yet"
+        case .lora: return "Nothing Heard Over LoRa Yet"
         case .other: return "Nothing Else Heard"
         }
     }
@@ -256,6 +320,7 @@ struct AnnounceView: View {
         switch scope {
         case .nodes: return "NomadNet nodes you can browse will appear here as they announce."
         case .lxmf: return "LXMF messaging peers will appear here as they announce."
+        case .lora: return "Peers heard directly over your connected RNode will appear here, split by LXMF and NomadNet."
         case .other: return "Announces from anything else on the network will appear here."
         }
     }
@@ -293,6 +358,40 @@ struct AnnounceView: View {
     private var unnamedPeers: [Peer] {
 
         searchFilteredPeers.filter { $0.displayName == nil }
+    }
+
+
+    // MARK: - LoRa scope
+
+    /// scopedPeers already restricts to lastInterfaceType == .rNode when
+    /// scope == .lora, so this just splits that same set into the two
+    /// destination-kind sections Bryan asked for — same LXMF/NomadNet
+    /// distinction as the other scopes, not a third grouping scheme.
+    @ViewBuilder
+    private var loraSections: some View {
+
+        let lxmf = searchFilteredPeers.filter(\.isLXMFPeer)
+        let nomadNet = searchFilteredPeers.filter(\.isNomadNetNode)
+
+        if !lxmf.isEmpty {
+
+            Section("LXMF") {
+
+                ForEach(sorted(lxmf)) { peer in
+                    peerRow(peer)
+                }
+            }
+        }
+
+        if !nomadNet.isEmpty {
+
+            Section("NomadNet") {
+
+                ForEach(sorted(nomadNet)) { peer in
+                    peerRow(peer)
+                }
+            }
+        }
     }
 
 
@@ -401,6 +500,15 @@ struct AnnounceView: View {
 
             HStack {
 
+                // Explicit label alongside the existing blue/green name
+                // color — color alone isn't a great way to communicate
+                // this on its own (easy to miss, not colorblind-friendly).
+                if let interfaceLabel = peer.interfaceLabel {
+
+                    Label(interfaceLabel, systemImage: peer.lastInterfaceType == .rNode ? "antenna.radiowaves.left.and.right" : "network")
+                        .foregroundStyle(peer.interfaceColor ?? Theme.textSecondary)
+                }
+
                 if let hops = peer.hopCount {
                     Label("\(hops) hop\(hops == 1 ? "" : "s")", systemImage: "arrow.triangle.branch")
                 }
@@ -414,7 +522,7 @@ struct AnnounceView: View {
         .contentShape(Rectangle())
         .onTapGesture {
 
-            // A MU Site row's whole tap target jumps straight into
+            // A NomadNet row's whole tap target jumps straight into
             // browsing it — this is the primary reason to be looking at
             // this scope at all, so it doesn't need to hide behind the
             // swipe action the way Message/Add Contact do.
