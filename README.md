@@ -28,6 +28,7 @@ Connect over TCP to a remote transport node, or go direct over LoRa with an RNod
 - **Reticulum protocol stack**, implemented in Swift — real identity/crypto, packet routing, Links, and Resource transfers, not a wrapper around someone else's client
 - **LXMF messaging** — reliable two-way delivery, contacts that track a peer's live announced name, a persistent message history, notification sounds and unread badges
 - **NomadNet browser** — fetches and renders real `.mu` pages, with favorites, downloads, and a home screen you can navigate from
+- **Tux search built into the address bar** — live search suggestions as you type, backed by [Tux](https://tux.icenomad.net), Reticulum's own search engine
 - **RNode (LoRa) support** — Bluetooth, WiFi, and direct USB serial (Mac), with full radio configuration built into the app
 - **Live announce feed** — see peers as they're heard, filterable by LXMF, NomadNet, or specifically what's coming in over LoRa
 - **QR code** scanning and sharing for addresses
@@ -42,10 +43,17 @@ IceNomad now runs as a genuinely native Mac app, built on the exact same SwiftUI
 
 A downloadable DMG is also available for testers — reach out at [wanderingpenguin@icenomad.net](mailto:wanderingpenguin@icenomad.net) for access. Since it isn't notarized yet, macOS will show an "unidentified developer" warning on first launch — right-click the app and choose **Open** (instead of double-clicking) to get past it.
 
-## Roadmap
+## Tux — a search engine for Reticulum
 
-### Tux — a search engine for Reticulum
-The next big piece: **Tux**, a service that crawls NomadNet's `.mu` pages, catalogs them, and makes the network searchable — think of it as Reticulum's answer to a search engine. Alongside search, Tux will offer friendly names for the network's long destination hashes (type a name instead of 32 hex characters) and a web gateway at icenomad.net for browsing NomadNet content from an ordinary web browser, no Reticulum client required. IceNomad will connect to Tux directly, so search and friendly addresses work right from the browser bar.
+**Tux is live** at [tux.icenomad.net](https://tux.icenomad.net) — Reticulum's own search engine. It crawls NomadNet's `.mu` pages across the mesh, indexes what it finds, and makes the whole thing searchable, so you don't need to memorize a 32-character hash just to find a page you liked.
+
+- **Real full-text search** over hundreds of crawled nodes, with an AI layer that reads each site and writes a one-line summary for search results
+- **Categories that grow on their own** — sites get sorted into an evolving taxonomy (not a fixed list) as more of the mesh gets indexed, browsable at [tux.icenomad.net/categories](https://tux.icenomad.net/categories)
+- **Friendly names** — [claim a `.mu` name](https://tux.icenomad.net/claim) for your own node so people can find you by name instead of a hash
+- **No client required** — plain HTTPS at tux.icenomad.net works from any browser, no Reticulum stack needed
+- **Built into IceNomad** — Tux is the Browser tab's home page (when connected via the IceNomad Public Relay), with the same live search suggestions surfaced right in the address bar
+
+## Roadmap
 
 ### Also in progress
 - **Offline message delivery** — receiving LXMF messages sent while your app wasn't running, via propagation node support
@@ -58,6 +66,7 @@ Actively developed. Currently working and in daily use:
 - Reticulum protocol integration — real packet routing, Links, Resource transfers
 - LXMF messaging, both directions, confirmed reliable
 - NomadNet browsing — real pages, real nodes
+- Tux search — live at tux.icenomad.net and integrated into the app's address bar
 - RNode connectivity over Bluetooth, WiFi, and USB serial
 - TCP client interfaces and live connection monitoring
 - Native iOS and Mac Catalyst builds from one codebase
