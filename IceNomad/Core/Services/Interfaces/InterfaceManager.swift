@@ -27,6 +27,12 @@ class InterfaceManager: ObservableObject {
 
     @Published var receivedPacketCount: Int = 0
 
+    /// RNode interface name -> last CMD_STAT_BAT the device pushed —
+    /// keyed the same way connectionStates is, since an RNodeInterface
+    /// itself isn't Observable (mirrors the existing pattern rather than
+    /// adding a second one).
+    @Published var rnodeBatteryStatus: [String: RNodeBatteryStatus] = [:]
+
     /// interface name -> its "TCPInterface[name/host:port]"-style
     /// description, used for periodic tunnel-synthesis re-signalling.
     private var tcpInterfaceDescriptions: [String: String] = [:]
@@ -440,6 +446,14 @@ class InterfaceManager: ObservableObject {
                 }
 
 
+                rnode.onBatteryUpdate = { [weak self] state, percent in
+
+                    DispatchQueue.main.async {
+                        self?.rnodeBatteryStatus[connection.name] = RNodeBatteryStatus(state: state, percent: percent)
+                    }
+                }
+
+
                 interfaces.append(rnode)
             }
         }
@@ -469,6 +483,19 @@ class InterfaceManager: ObservableObject {
 
             interface.stop()
         }
+    }
+
+
+    /// Looks up the live RNodeInterface instance for a saved connection,
+    /// so device-control UI (reboot, display, WiFi settings) can call its
+    /// methods directly — those are fire-and-forget commands to the
+    /// physical board, not local config, so there's no need to route
+    /// them through Connection/RNodeConfig the way radio parameters are.
+    /// nil if that connection isn't currently running (e.g. mid-restart,
+    /// or a different transport failed to connect).
+    func rnodeInterface(named name: String) -> RNodeInterface? {
+
+        interfaces.first { $0.name == name } as? RNodeInterface
     }
 
 

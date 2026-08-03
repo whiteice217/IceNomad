@@ -43,6 +43,7 @@ enum PacketBuilder {
         static let request: UInt8 = 0x09
         static let response: UInt8 = 0x0A
         static let keepalive: UInt8 = 0xFA
+        static let linkIdentify: UInt8 = 0xFB
         static let linkClose: UInt8 = 0xFC
         static let linkProof: UInt8 = 0xFD
         static let lrrtt: UInt8 = 0xFE

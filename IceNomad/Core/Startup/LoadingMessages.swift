@@ -128,6 +128,19 @@ struct LoadingMessages {
         "Recording signals from the frozen frontier…"
     ]
 
+    static let preloadingTux = [
+        "Tux the search penguin is fetching the map…",
+        "Charting the mesh with Tux's spyglass…",
+        "Tux is waddling ahead to scout the index…",
+        "Warming up the search burrow…",
+        "Tux is flipping through the frozen card catalog…",
+        "Fetching the colony's search post…",
+        "Tux is diving for the latest index…",
+        "Stocking the search burrow with fresh listings…",
+        "Tux is tracking down the mesh directory…",
+        "Preloading Tux so the search bar is ready to go…"
+    ]
+
     static let appReady = [
         "IceNomad is ready for exploration!",
         "The frozen frontier awaits your journey…",

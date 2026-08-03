@@ -17,20 +17,55 @@ struct MicronView: View {
     /// each MicronTextView, which only actually uses it for ordinary
     /// prose lines (art lines ignore it and size to their natural width).
     let availableWidth: CGFloat
+    /// Live values for any `<...>` form fields on this page — nil for
+    /// contexts that never render a form (falls back to a fresh, throwaway
+    /// state so field lines still render, just without a live binding
+    /// anywhere else cares about).
+    @ObservedObject var formState: MicronFormState
     var onLinkTap: ((MicronLink) -> Void)?
+    /// Threaded straight through to whichever MicronFormRowView renders
+    /// this page's search field, if it has one — see that view's own
+    /// doc comment.
+    var searchSuggestions: [BrowserState.Suggestion] = []
+    var onSearchQueryChange: ((String) -> Void)?
+    var onSelectSearchSuggestion: ((BrowserState.Suggestion) -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
 
     /// Convenience initializer — parses raw .mu source directly.
-    init(source: String, availableWidth: CGFloat, onLinkTap: ((MicronLink) -> Void)? = nil) {
+    init(
+        source: String,
+        availableWidth: CGFloat,
+        formState: MicronFormState = MicronFormState(),
+        searchSuggestions: [BrowserState.Suggestion] = [],
+        onSearchQueryChange: ((String) -> Void)? = nil,
+        onSelectSearchSuggestion: ((BrowserState.Suggestion) -> Void)? = nil,
+        onLinkTap: ((MicronLink) -> Void)? = nil
+    ) {
         self.document = MicronParser.parse(source)
         self.availableWidth = availableWidth
+        self.formState = formState
+        self.searchSuggestions = searchSuggestions
+        self.onSearchQueryChange = onSearchQueryChange
+        self.onSelectSearchSuggestion = onSelectSearchSuggestion
         self.onLinkTap = onLinkTap
     }
 
-    init(document: MicronDocument, availableWidth: CGFloat, onLinkTap: ((MicronLink) -> Void)? = nil) {
+    init(
+        document: MicronDocument,
+        availableWidth: CGFloat,
+        formState: MicronFormState = MicronFormState(),
+        searchSuggestions: [BrowserState.Suggestion] = [],
+        onSearchQueryChange: ((String) -> Void)? = nil,
+        onSelectSearchSuggestion: ((BrowserState.Suggestion) -> Void)? = nil,
+        onLinkTap: ((MicronLink) -> Void)? = nil
+    ) {
         self.document = document
         self.availableWidth = availableWidth
+        self.formState = formState
+        self.searchSuggestions = searchSuggestions
+        self.onSearchQueryChange = onSearchQueryChange
+        self.onSelectSearchSuggestion = onSelectSearchSuggestion
         self.onLinkTap = onLinkTap
     }
 
@@ -238,6 +273,25 @@ struct MicronView: View {
 
             if line.spans.isEmpty {
                 EmptyView()
+            } else if line.spans.contains(where: { $0.field != nil }) {
+
+                // A field-bearing line renders as real SwiftUI controls
+                // (MicronFormRowView), not through MicronTextView's UIKit
+                // attributed-string path — see that view's header comment
+                // for why. Its spans already have empty `text`, so
+                // MicronTextView.isFixedWidthArt's own emptiness guard
+                // already keeps this line out of `groups`' art-run
+                // merging without any change needed there.
+                MicronFormRowView(
+                    spans: line.spans,
+                    alignment: line.alignment,
+                    formState: formState,
+                    onLinkTap: onLinkTap,
+                    searchSuggestions: searchSuggestions,
+                    onSearchQueryChange: onSearchQueryChange,
+                    onSelectSearchSuggestion: onSelectSearchSuggestion
+                )
+
             } else {
 
                 MicronTextView(

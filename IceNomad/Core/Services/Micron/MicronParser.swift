@@ -23,8 +23,20 @@
 //                      real NomadNet's behavior (see Theme.micronHeading*)
 //    <                a bare "<" resets heading depth (and its indent)
 //                      back to top level
-//    `[Label`target]  link ("target" may be "path", "hash:/path", or "type@hash")
-//    `<name`default>  input field (rendered as placeholder — not wired to submission)
+//    `[Label`target]  link ("target" may be "path", "hash:/path", or "type@hash");
+//                      target may carry a THIRD backtick-delimited segment
+//                      naming which fields to submit with it (`*` = all
+//                      fields on the page) — real NomadNet's form-submit
+//                      link convention, e.g. `[Submit`/page/x.mu`*]`
+//    `<name`default>  text input field, or `<width|name`default>` for an
+//                      explicit width; `<?|name|value`label>` for a
+//                      checkbox, `<^|name|value`label>` for a radio button
+//                      (radios sharing the same name are one group) —
+//                      confirmed against real NomadNet's own client parser
+//                      (ui/textui/MicronParser.py) and link handler
+//                      (ui/textui/Browser.py handle_link), not guessed.
+//                      Rendered as real interactive controls by
+//                      MicronFormRowView, bound to a MicronFormState.
 //    -X...            divider — ANY line starting with "-"; if the line is
 //                      EXACTLY 2 characters, the 2nd is the fill glyph,
 //                      else default U+2500 "─". Rendered with whatever
@@ -81,6 +93,39 @@ struct MicronSpan: Identifiable {
     var foreground: Color?
     var background: Color?
     var link: MicronLink?
+    var field: MicronField?
+}
+
+
+/// A parsed `<...>` form-field directive. `text` is a free-entry input;
+/// `checkbox`/`radio` render as a labeled toggle — radios sharing the same
+/// `name` form one mutually-exclusive group, matching real NomadNet's
+/// `state["radio_groups"]` behavior.
+struct MicronField {
+
+    enum Kind {
+        case text
+        case checkbox
+        case radio
+    }
+
+    var kind: Kind
+    var name: String
+    /// `.text` only — a hint for the rendered control's width, in
+    /// characters (real NomadNet caps this at 256).
+    var width: Int = 24
+    /// `.text` only — real NomadNet renders this as a password-style
+    /// masked field.
+    var masked: Bool = false
+    /// `.text` only — the field's starting content.
+    var initialText: String = ""
+    /// `.checkbox`/`.radio` only — the value submitted when this option
+    /// is selected (defaults to the label text if none was given).
+    var value: String = "1"
+    /// `.checkbox`/`.radio` only — the text shown next to the control.
+    var label: String = ""
+    /// `.checkbox`/`.radio` only — checked/selected by default.
+    var prechecked: Bool = false
 }
 
 
@@ -102,6 +147,53 @@ struct MicronLink: Equatable {
     /// `if path.startswith("/file/"):`). Tapping one of these should hand
     /// off to DownloadManager rather than BrowserState.followLink.
     var isFileLink: Bool { path.hasPrefix("/file/") }
+
+    /// True when this link carries a third backtick-delimited segment
+    /// (captured in `rawParams`) — real NomadNet's form-submit convention:
+    /// tapping it should send the named page fields along with the
+    /// request instead of just navigating. Confirmed against
+    /// ui/textui/Browser.py's `handle_link` (the `link_data`/`link_fields`
+    /// handling) and ui/textui/MicronParser.py (the link's third
+    /// `link_components` segment).
+    var isFormSubmit: Bool {
+        guard let rawParams else { return false }
+        return !rawParams.isEmpty
+    }
+
+    /// A bare `*` entry anywhere in the segment means "every field
+    /// currently on the page" — real NomadNet's `all_fields` behavior
+    /// (`"*" in link_data`, list membership — it can appear alongside
+    /// var_ pairs, e.g. `*,node=<hash>`, not only alone).
+    var submitsAllFields: Bool {
+        rawParamEntries.contains("*")
+    }
+
+    /// Bare field-name entries (no "=", not "*") — the specific page
+    /// fields to submit when this isn't a submit-all link.
+    var submittedFieldNames: [String] {
+        rawParamEntries.filter { $0 != "*" && !$0.contains("=") }
+    }
+
+    /// Literal `key=value` entries in the link's third segment — real
+    /// NomadNet's mechanism for passing fixed parameters with a link tap
+    /// (not tied to any live form control), submitted as `var_key`.
+    /// Confirmed against Browser.py's handle_link: `if "=" in e: ...
+    /// request_data["var_"+c[0]] = c[1]`. E.g. a search result link
+    /// carrying `node=<hash>,path=/page/index.mu` to identify which
+    /// crawled page to view.
+    var submittedVarPairs: [(name: String, value: String)] {
+        rawParamEntries.compactMap { entry in
+            guard let eqIndex = entry.firstIndex(of: "=") else { return nil }
+            let name = entry[entry.startIndex..<eqIndex].trimmingCharacters(in: .whitespaces)
+            let value = entry[entry.index(after: eqIndex)...].trimmingCharacters(in: .whitespaces)
+            return (name, value)
+        }
+    }
+
+    private var rawParamEntries: [String] {
+        guard let rawParams else { return [] }
+        return rawParams.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+    }
 }
 
 
@@ -514,34 +606,66 @@ enum MicronParser {
                 i = j
 
             case "<":
-                // Input field — rendered as a placeholder for now, since
-                // there's no live Link yet to submit values over.
+                // Input field. Real syntax (confirmed against NomadNet's
+                // own MicronParser.py): content between "<" and the NEXT
+                // BACKTICK is the field spec ("name", or "flags|name" for
+                // a checkbox/radio/masked/width-specified field); content
+                // between that backtick and the closing ">" is the
+                // initial text (text field) or label (checkbox/radio) —
+                // NOT scanned up to ">" directly, since a plain text
+                // field's initial value can itself legitimately be empty
+                // with nothing else between the two delimiters.
                 flush()
 
                 var j = i + 2
-                var fieldSpec = ""
+                var backtickPos: Int?
 
-                while j < chars.count, chars[j] != ">" {
-                    fieldSpec.append(chars[j])
+                while j < chars.count {
+                    if chars[j] == "`" { backtickPos = j; break }
                     j += 1
                 }
 
-                if j < chars.count {
-                    j += 1
+                guard let backtickPos else {
+                    // No closing backtick — malformed, treat as literal.
+                    buffer.append(contentsOf: "`<")
+                    i += 2
+                    break
                 }
 
-                spans.append(
-                    MicronSpan(
-                        text: "[field: \(fieldPlaceholderName(fieldSpec))]",
-                        bold: bold,
-                        italic: italic,
-                        underline: underline,
-                        foreground: .secondary,
-                        background: nil
+                let fieldContent = String(chars[(i + 2)..<backtickPos])
+
+                var k = backtickPos + 1
+                var fieldEnd: Int?
+
+                while k < chars.count {
+                    if chars[k] == ">" { fieldEnd = k; break }
+                    k += 1
+                }
+
+                guard let fieldEnd else {
+                    // No closing ">" — malformed, treat as literal.
+                    buffer.append(contentsOf: "`<" + fieldContent + "`")
+                    i = backtickPos + 1
+                    break
+                }
+
+                let fieldData = String(chars[(backtickPos + 1)..<fieldEnd])
+
+                if let field = parseField(content: fieldContent, data: fieldData) {
+                    spans.append(
+                        MicronSpan(
+                            text: "",
+                            bold: bold,
+                            italic: italic,
+                            underline: underline,
+                            foreground: foreground,
+                            background: background,
+                            field: field
+                        )
                     )
-                )
+                }
 
-                i = j
+                i = fieldEnd + 1
 
             default:
                 // Unrecognized directive — keep the backtick as literal
@@ -608,14 +732,54 @@ enum MicronParser {
     }
 
 
-    private static func fieldPlaceholderName(_ spec: String) -> String {
+    /// Parses a field's spec (`content`, between "<" and the first
+    /// backtick) plus its initial-text/label (`data`, between that
+    /// backtick and ">"). Confirmed against real NomadNet's own field
+    /// parsing (ui/textui/MicronParser.py) — flags is one of `^`
+    /// (radio), `?` (checkbox), or `!` (masked text), `elif`-exclusive
+    /// (only the first one present applies), with any remaining digits
+    /// in the flags segment read as a text field's width.
+    private static func parseField(content: String, data: String) -> MicronField? {
 
-        // Formats seen: "fieldname", "24|fieldname", "!16|password"
-        if let barIndex = spec.firstIndex(of: "|") {
-            return String(spec[spec.index(after: barIndex)...])
+        guard content.contains("|") else {
+            return MicronField(kind: .text, name: content, initialText: data)
         }
 
-        return spec
+        let components = content.components(separatedBy: "|")
+
+        guard components.count >= 2 else {
+            return nil
+        }
+
+        var flags = components[0]
+        let name = components[1]
+        var kind: MicronField.Kind = .text
+        var masked = false
+
+        if flags.contains("^") {
+            kind = .radio
+            flags.removeAll { $0 == "^" }
+        } else if flags.contains("?") {
+            kind = .checkbox
+            flags.removeAll { $0 == "?" }
+        } else if flags.contains("!") {
+            masked = true
+            flags.removeAll { $0 == "!" }
+        }
+
+        let width = flags.isEmpty ? 24 : min(Int(flags) ?? 24, 256)
+        var value = components.count > 2 ? components[2] : ""
+        let prechecked = components.count > 3 && components[3] == "*"
+
+        switch kind {
+
+        case .text:
+            return MicronField(kind: .text, name: name, width: width, masked: masked, initialText: data)
+
+        case .checkbox, .radio:
+            if value.isEmpty { value = data }
+            return MicronField(kind: kind, name: name, value: value, label: data, prechecked: prechecked)
+        }
     }
 }
 

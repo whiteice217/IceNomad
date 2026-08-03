@@ -43,6 +43,15 @@ enum RNodeKISS {
         case ready = 0x0F
         case statRSSI = 0x23
         case statSNR = 0x24
+        case statBattery = 0x27
+        case dispIntensity = 0x45
+        case dispBlank = 0x64
+        case wifiMode = 0x6A
+        case wifiSSID = 0x6B
+        case wifiPSK = 0x6C
+        case wifiIP = 0x84
+        case wifiNM = 0x85
+        case reset = 0x55
         case error = 0x90
     }
 
@@ -52,6 +61,27 @@ enum RNodeKISS {
 
     static let detectRequest: UInt8 = 0x73
     static let detectResponse: UInt8 = 0x46
+
+    static let wifiModeOff: UInt8 = 0x00
+    static let wifiModeStation: UInt8 = 0x01
+    static let wifiModeAccessPoint: UInt8 = 0x02
+
+    /// The confirmation byte CMD_RESET requires as its payload — a bare
+    /// reset command with no payload (or the wrong byte) is ignored by
+    /// the firmware on purpose, so a stray/malformed frame can't
+    /// accidentally reboot the radio.
+    static let resetConfirm: UInt8 = 0xF8
+
+    /// Firmware's BATTERY_STATE_* values (Config.h) — sent unprompted in
+    /// the CMD_STAT_BAT payload's first byte roughly every few seconds
+    /// once the device's battery ADC has enough samples; not something
+    /// the host has to poll for.
+    enum BatteryState: UInt8 {
+        case unknown = 0x00
+        case discharging = 0x01
+        case charging = 0x02
+        case charged = 0x03
+    }
 
 
     // MARK: - Encoding
@@ -118,6 +148,24 @@ enum RNodeKISS {
     /// Single-byte value, for CMD_TXPOWER / CMD_SF / CMD_CR / CMD_RADIO_STATE.
     static func frame(_ command: Command, byte value: UInt8) -> Data {
         frame(command, payload: Data([value]))
+    }
+
+
+    /// Raw 4 bytes in order, for CMD_WIFI_IP / CMD_WIFI_NM (an IPv4
+    /// address/netmask, not a numeric value to byte-swap like uint32:).
+    static func frame(_ command: Command, ipv4Bytes value: (UInt8, UInt8, UInt8, UInt8)) -> Data {
+        frame(command, payload: Data([value.0, value.1, value.2, value.3]))
+    }
+
+
+    /// For CMD_WIFI_SSID / CMD_WIFI_PSK — confirmed against real firmware
+    /// source (RNode_Firmware.ino): the handler watches for a trailing
+    /// 0x00 byte *within* the payload itself as the "end of string"
+    /// marker (it writes each byte to EEPROM as it streams in, then does
+    /// a final pass on seeing 0x00), not just the closing KISS FEND. An
+    /// empty string still needs the trailing 0x00 to actually clear/save.
+    static func frame(_ command: Command, nulTerminatedString value: String) -> Data {
+        frame(command, payload: Data(value.utf8) + Data([0x00]))
     }
 
 

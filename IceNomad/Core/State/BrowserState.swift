@@ -19,13 +19,49 @@ final class BrowserState: ObservableObject {
         var path: String
     }
 
+    /// Tux's real, live Reticulum destination hash — IceNomad's built-in
+    /// search engine, and (see BrowserView) the Browser tab's default
+    /// home page for a session's first load.
+    static let tuxDestinationHashHex = "3e844dc99cfd7548d1b25d5b6a4a8172"
+
+    struct Suggestion: Identifiable {
+        let id = UUID()
+        var label: String
+        var snippet: String
+        var destinationHashHex: String
+        var path: String
+    }
+
     @Published private(set) var current: PageRef?
     @Published var addressText: String = ""
     @Published private(set) var content: String = BrowserState.welcomeContent
+    /// Live values for whatever `<...>` form fields the current page
+    /// declares — reseeded fresh (see setContent) every time content
+    /// changes, since a new page's fields have nothing to do with the
+    /// last one's.
+    @Published private(set) var formState = MicronFormState()
     @Published private(set) var isLoading: Bool = false
+    /// Live, database-backed autocomplete — driven by Tux's own search
+    /// index over Reticulum, not local text prediction. Kept as two
+    /// separate published lists, not one shared list, even though both
+    /// are fetched the same way: the native address bar and an on-page
+    /// Micron search field can be visible at the same time (e.g. Mac's
+    /// inline address field alongside the page content), and a single
+    /// shared list meant typing in one showed a dropdown under *both* —
+    /// a real bug caught by Bryan testing live.
+    @Published private(set) var addressSuggestions: [Suggestion] = []
+    @Published private(set) var pageSuggestions: [Suggestion] = []
 
     private var backStack: [PageRef] = []
     private var forwardStack: [PageRef] = []
+
+    /// Guards a suggestions fetch the same way loadToken guards a page
+    /// fetch — a stale response (the user kept typing) must not clobber
+    /// a newer one. One token per list, so an address-bar fetch and a
+    /// page-search fetch in flight at the same time can't cancel each
+    /// other out either.
+    private var addressSuggestionsToken = UUID()
+    private var pageSuggestionsToken = UUID()
 
     /// Which node we currently hold a Link open to — used to tear it
     /// down when navigating to a different node.
@@ -41,6 +77,24 @@ final class BrowserState: ObservableObject {
 
 
     // MARK: - Navigation
+
+    /// Shows Tux's index page instantly from StartupManager's preload
+    /// (TuxPreloadStore) instead of a live fetch — no loading state to
+    /// sit through, since the network round-trip already happened during
+    /// the splash screen. `connectedDestinationHashHex` is set the same
+    /// as a real connect() would: TuxPreloadStore fetched through
+    /// LinkManager too, so that Link is very likely still alive and
+    /// cached, ready for the next request (e.g. tapping Search) to reuse.
+    func loadPreloadedHome(content: String) {
+
+        let ref = PageRef(destinationHashHex: Self.tuxDestinationHashHex, path: "/page/index.mu")
+
+        current = ref
+        addressText = "\(ref.destinationHashHex):\(ref.path)"
+        connectedDestinationHashHex = ref.destinationHashHex
+        setContent(content)
+    }
+
 
     func connect(to destinationHashHex: String) {
 
@@ -74,7 +128,7 @@ final class BrowserState: ObservableObject {
 
         loadToken = UUID()
         isLoading = false
-        content = BrowserState.stoppedContent(for: current)
+        setContent(BrowserState.stoppedContent(for: current))
     }
 
 
@@ -125,7 +179,92 @@ final class BrowserState: ObservableObject {
         guard let currentHex = current?.destinationHashHex else { return }
 
         let hex = link.destinationHashHex ?? currentHex
+
+        if link.isFormSubmit {
+            submitForm(link, destinationHashHex: hex)
+            return
+        }
+
         navigate(to: PageRef(destinationHashHex: hex, path: link.path))
+    }
+
+
+    /// A form-submit link (real NomadNet's third link-target segment,
+    /// e.g. `` `[Submit`/page/claim.mu`*]` ``) — sends the page's current
+    /// field values along with the request instead of just navigating.
+    /// Identifies to the remote node first (ReticulumLink.identify()):
+    /// submitting a form already hands that node whatever the user typed
+    /// into it, so proving cryptographic identity at the same moment is
+    /// consistent with that, and it's exactly what a form like Tux's
+    /// claim.mu needs to verify who's submitting — plain page navigation
+    /// never triggers this, preserving the initiator anonymity a normal
+    /// browse should have.
+    private func submitForm(_ link: MicronLink, destinationHashHex hex: String) {
+
+        let ref = PageRef(destinationHashHex: hex, path: link.path)
+        let fieldNames = link.submitsAllFields ? nil : link.submittedFieldNames
+        // Field values from live page controls, plus any literal var_
+        // pairs baked into the link itself (real NomadNet's mechanism for
+        // passing fixed parameters with a tap — e.g. a search result
+        // link naming which crawled page to view — independent of
+        // whether the page has any form fields at all).
+        let payload = formState.fieldPayload(includingOnly: fieldNames)
+            + link.submittedVarPairs.map { (MsgpackValue.string("var_" + $0.name), MsgpackValue.string($0.value)) }
+
+        if let current {
+            backStack.append(current)
+        }
+        forwardStack.removeAll()
+        current = ref
+        addressText = "\(ref.destinationHashHex):\(ref.path)"
+
+        let token = UUID()
+        loadToken = token
+
+        isLoading = true
+        setContent(BrowserState.loadingContent(for: ref))
+
+        LinkManager.shared.connect(to: hex) { [weak self] connectResult in
+
+            DispatchQueue.main.async {
+
+                guard let self, self.loadToken == token else {
+                    return
+                }
+
+                switch connectResult {
+
+                case .failure(let error):
+                    self.isLoading = false
+                    self.setContent(BrowserState.errorContent(for: ref, reason: BrowserState.describe(error)))
+
+                case .success(let reticulumLink):
+
+                    reticulumLink.identify(as: IdentityStore.shared.myIdentity)
+
+                    reticulumLink.request(path: ref.path, data: .map(payload)) { [weak self] requestResult in
+
+                        DispatchQueue.main.async {
+
+                            guard let self, self.loadToken == token else {
+                                return
+                            }
+
+                            self.isLoading = false
+
+                            switch requestResult {
+
+                            case .success(let data):
+                                self.setContent(String(data: data, encoding: .utf8) ?? BrowserState.binaryContent(byteCount: data.count))
+
+                            case .failure(let error):
+                                self.setContent(BrowserState.errorContent(for: ref, reason: BrowserState.describe(error)))
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
 
@@ -150,6 +289,129 @@ final class BrowserState: ObservableObject {
 
             navigate(to: PageRef(destinationHashHex: hex, path: raw.isEmpty ? "/page/index.mu" : raw))
         }
+    }
+
+
+    // MARK: - Autocomplete (Tux-backed)
+
+    /// Live, database-backed suggestions for the native address bar —
+    /// queries Tux's own search index over Reticulum (its `/suggest`
+    /// request path), not local text prediction. Skips the round-trip
+    /// entirely for text that already looks like a real "hash:/path"
+    /// address, since that's direct navigation, not a search.
+    func updateAddressSuggestions(for text: String) {
+        fetchSuggestions(for: text, tokenKeyPath: \.addressSuggestionsToken) { [weak self] in self?.addressSuggestions = $0 }
+    }
+
+
+    func clearAddressSuggestions() {
+        addressSuggestionsToken = UUID()
+        addressSuggestions = []
+    }
+
+
+    /// Same live Tux-backed suggestions, for an on-page Micron search
+    /// field instead of the address bar — kept as an entirely separate
+    /// published list + token (see the doc comment on pageSuggestions)
+    /// so the two dropdowns can never show each other's results.
+    func updatePageSuggestions(for text: String) {
+        fetchSuggestions(for: text, tokenKeyPath: \.pageSuggestionsToken) { [weak self] in self?.pageSuggestions = $0 }
+    }
+
+
+    func clearPageSuggestions() {
+        pageSuggestionsToken = UUID()
+        pageSuggestions = []
+    }
+
+
+    /// `tokenKeyPath` picks which of the two staleness tokens this fetch
+    /// belongs to — a `ReferenceWritableKeyPath` rather than an `inout`
+    /// parameter since the check has to happen inside an escaping
+    /// completion closure, after this function has already returned.
+    private func fetchSuggestions(for text: String, tokenKeyPath: ReferenceWritableKeyPath<BrowserState, UUID>, assign: @escaping ([Suggestion]) -> Void) {
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let looksLikeAddress = trimmed.firstIndex(of: ":").map { colonIndex in
+            trimmed.distance(from: trimmed.startIndex, to: colonIndex) == 32
+                && trimmed[trimmed.startIndex..<colonIndex].allSatisfy { $0.isHexDigit }
+        } ?? false
+
+        guard !looksLikeAddress, trimmed.count >= 2 else {
+            self[keyPath: tokenKeyPath] = UUID()
+            assign([])
+            return
+        }
+
+        let token = UUID()
+        self[keyPath: tokenKeyPath] = token
+
+        LinkManager.shared.connect(to: Self.tuxDestinationHashHex) { [weak self] connectResult in
+
+            guard case .success(let link) = connectResult else {
+                return
+            }
+
+            let payload: [(MsgpackValue, MsgpackValue)] = [(.string("q"), .string(trimmed))]
+
+            link.request(path: "/suggest", data: .map(payload)) { [weak self] requestResult in
+
+                DispatchQueue.main.async {
+
+                    guard let self, self[keyPath: tokenKeyPath] == token,
+                          case .success(let data) = requestResult,
+                          let decoded = try? MsgpackValue.decode(data),
+                          case .array(let items) = decoded
+                    else {
+                        return
+                    }
+
+                    let suggestions: [Suggestion] = items.compactMap { item in
+
+                        guard case .map(let pairs) = item else {
+                            return nil
+                        }
+
+                        var fields: [String: String] = [:]
+                        for (key, value) in pairs {
+                            guard case .string(let keyString) = key, case .string(let valueString) = value else {
+                                continue
+                            }
+                            fields[keyString] = valueString
+                        }
+
+                        guard let label = fields["label"], let node = fields["node"], let path = fields["path"] else {
+                            return nil
+                        }
+
+                        return Suggestion(label: label, snippet: fields["snippet"] ?? "", destinationHashHex: node, path: path)
+                    }
+
+                    assign(suggestions)
+                }
+            }
+        }
+    }
+
+
+    /// Navigates straight to a tapped suggestion — it already carries the
+    /// exact destination hash and path, so there's no reason to make the
+    /// user hit Go again the way a plain typed address would need to.
+    func selectSuggestion(_ suggestion: Suggestion) {
+        clearAddressSuggestions()
+        clearPageSuggestions()
+        navigate(to: PageRef(destinationHashHex: suggestion.destinationHashHex, path: suggestion.path))
+    }
+
+
+    /// The only place `content` is ever assigned — reseeds `formState`
+    /// from the newly-set page in the same step, so a stale page's field
+    /// values (or worse, a stale text field silently carrying over onto
+    /// an unrelated page) can never linger past a navigation.
+    private func setContent(_ text: String) {
+        content = text
+        formState = MicronFormState(document: MicronParser.parse(text))
     }
 
 
@@ -188,7 +450,7 @@ final class BrowserState: ObservableObject {
         loadToken = token
 
         isLoading = true
-        content = BrowserState.loadingContent(for: ref)
+        setContent(BrowserState.loadingContent(for: ref))
 
         LinkManager.shared.connect(to: ref.destinationHashHex) { [weak self] connectResult in
 
@@ -216,7 +478,7 @@ final class BrowserState: ObservableObject {
 
                 case .failure(let error):
                     self.isLoading = false
-                    self.content = BrowserState.errorContent(for: ref, reason: BrowserState.describe(error))
+                    self.setContent(BrowserState.errorContent(for: ref, reason: BrowserState.describe(error)))
 
                 case .success(let link):
 
@@ -233,10 +495,10 @@ final class BrowserState: ObservableObject {
                             switch requestResult {
 
                             case .success(let data):
-                                self.content = String(data: data, encoding: .utf8) ?? BrowserState.binaryContent(byteCount: data.count)
+                                self.setContent(String(data: data, encoding: .utf8) ?? BrowserState.binaryContent(byteCount: data.count))
 
                             case .failure(let error):
-                                self.content = BrowserState.errorContent(for: ref, reason: BrowserState.describe(error))
+                                self.setContent(BrowserState.errorContent(for: ref, reason: BrowserState.describe(error)))
                             }
                         }
                     }

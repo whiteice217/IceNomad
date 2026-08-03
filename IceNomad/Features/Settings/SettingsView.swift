@@ -9,10 +9,12 @@ struct SettingsView: View {
 
     @Binding var selectedTab: AppTab
     @Binding var pendingChatHex: String?
+    @Binding var isShowingSetupWizard: Bool
 
     @ObservedObject private var userProfile = UserProfile.shared
 
     @State private var isPickingCustomNotificationSound = false
+    @State private var isConfirmingConnectionsReset = false
 
     /// Bryan's own Mac IceNomad LXMF address — lets a user report a bug
     /// straight from the app instead of leaving it for GitHub/email only.
@@ -48,6 +50,31 @@ struct SettingsView: View {
                 }
 
                 NotificationSettingsSection(isPickingCustomSound: $isPickingCustomNotificationSound)
+
+                Section {
+
+                    Button(role: .destructive) {
+                        isConfirmingConnectionsReset = true
+                    } label: {
+                        Label("Reset Connections & Rerun Setup", systemImage: "arrow.counterclockwise")
+                    }
+                    .confirmationDialog(
+                        "Remove all saved connections?",
+                        isPresented: $isConfirmingConnectionsReset,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Reset & Rerun Setup", role: .destructive) {
+                            ConnectionStorage.shared.save([])
+                            InterfaceManager.shared.restartAll()
+                            isShowingSetupWizard = true
+                        }
+                    } message: {
+                        Text("This removes every TCP and RNode connection you've configured, then walks you back through setup. This can't be undone.")
+                    }
+
+                } footer: {
+                    Text("Also useful if you want to switch to the IceNomad Public Relay for Tux search, or start over with a different RNode.")
+                }
 
                 FirmwareToolsSection()
 

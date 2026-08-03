@@ -29,11 +29,25 @@ enum ConnectionType: String, CaseIterable, Identifiable, Codable {
 /// for elevation — WiFi's range is much longer, and since it's the same
 /// wire protocol either way, only the transport underneath RNodeInterface
 /// needs to change, not the KISS layer itself.
-enum RNodeConnectionMethod: String, Codable, CaseIterable, Identifiable {
+enum RNodeConnectionMethod: String, Codable, Identifiable {
     case bluetooth = "Bluetooth"
+    case usb = "USB"
     case wifi = "WiFi"
 
     var id: String { rawValue }
+
+    /// Not a plain CaseIterable — USB-serial device access needs raw
+    /// POSIX open()/termios, which iOS doesn't allow third-party apps
+    /// (no MFi certification here), same restriction as Firmware Tools.
+    /// Hidden from the picker entirely on iOS rather than shown and
+    /// failing at connect time.
+    static var allCases: [RNodeConnectionMethod] {
+        #if targetEnvironment(macCatalyst)
+        [.bluetooth, .usb, .wifi]
+        #else
+        [.bluetooth, .wifi]
+        #endif
+    }
 }
 
 struct RNodeConfig: Codable {
@@ -47,6 +61,9 @@ struct RNodeConfig: Codable {
     /// hands out in station mode.
     var wifiHost: String = ""
     var wifiPort: String = "7633"
+    /// /dev/cu.* path for a directly USB-connected RNode — Mac Catalyst
+    /// only, same restriction as connectionMethod.usb generally.
+    var usbSerialPath: String = ""
 
     var freqGHz: String = "0"
     var freqMHz: String = "915"
@@ -120,6 +137,7 @@ struct RNodeConfig: Codable {
         connectionMethod = try container.decodeIfPresent(RNodeConnectionMethod.self, forKey: .connectionMethod) ?? .bluetooth
         wifiHost = try container.decodeIfPresent(String.self, forKey: .wifiHost) ?? ""
         wifiPort = try container.decodeIfPresent(String.self, forKey: .wifiPort) ?? "7633"
+        usbSerialPath = try container.decodeIfPresent(String.self, forKey: .usbSerialPath) ?? ""
 
         freqGHz = try container.decode(String.self, forKey: .freqGHz)
         freqMHz = try container.decode(String.self, forKey: .freqMHz)
@@ -172,6 +190,21 @@ struct SuggestedConnection: Identifiable {
     let address: String
     let port: String
     var isRecommended: Bool = false
+
+    /// The canonical list — was a private copy inside ConnectionsView
+    /// until the first-run setup wizard needed the exact same options.
+    /// IceNomad's own relay first (recommended); beyond that, real
+    /// community-run public Reticulum hubs pulled from the live
+    /// directory at directory.rns.recipes — verify that list again
+    /// before assuming any of these are still up if a future session
+    /// revisits this, since they're run by other people, not IceNomad.
+    static let all: [SuggestedConnection] = [
+        SuggestedConnection(name: "IceNomad Public Relay", address: "rns.icenomad.net", port: "4242", isRecommended: true),
+        SuggestedConnection(name: "RMAP", address: "rmap.world", port: "4242"),
+        SuggestedConnection(name: "Sydney RNS", address: "sydney.reticulum.au", port: "4242"),
+        SuggestedConnection(name: "Birdsnet BR", address: "rns.birdsnet.com.br", port: "4242"),
+        SuggestedConnection(name: "Inertia.Chat", address: "use.inertia.chat", port: "4242"),
+    ]
 }
 
 // MARK: - State
@@ -202,6 +235,8 @@ struct ConnectionsView: View {
     @ObservedObject private var interfaceManager = InterfaceManager.shared
     @State private var isRefreshing = false
     @State private var isShowingRNodePairing = false
+    @State private var usbSerialPorts: [String] = []
+    @State private var controllingConnection: Connection?
     @State private var isShowingAddressQRCode = false
     @State private var isShowingScanner = false
     @State private var pendingScannedCode: ScannedCode?
@@ -217,20 +252,11 @@ struct ConnectionsView: View {
 
     /// Shown only while the user has no TCP client configured yet —
     /// tapping one pre-fills the TCP form rather than adding silently,
-    /// so the user still confirms with Save. Beyond IceNomad's own
-    /// (recommended, listed first), these are real community-run public
-    /// Reticulum hubs pulled from the live directory at
-    /// directory.rns.recipes — verify that list again before assuming
-    /// any of these are still up if a future session revisits this,
-    /// since they're run by other people, not IceNomad.
-    private let suggestedConnections: [SuggestedConnection] = [
-        SuggestedConnection(name: "IceNomad Public Relay", address: "rns.icenomad.net", port: "4242", isRecommended: true),
-        SuggestedConnection(name: "RMAP", address: "rmap.world", port: "4242"),
-        SuggestedConnection(name: "Sydney RNS", address: "sydney.reticulum.au", port: "4242"),
-        SuggestedConnection(name: "Birdsnet BR", address: "rns.birdsnet.com.br", port: "4242"),
-        SuggestedConnection(name: "Inertia.Chat", address: "use.inertia.chat", port: "4242"),
-    ]
-    
+    /// so the user still confirms with Save. See SuggestedConnection.all
+    /// for the actual list (shared with the first-run setup wizard).
+    private let suggestedConnections = SuggestedConnection.all
+
+
     var body: some View {
         
         NavigationStack {
@@ -414,8 +440,16 @@ struct ConnectionsView: View {
                                         Text("Power: \(rnode.transmitPower)")
 
                                         HStack(spacing: 4) {
-                                            Image(systemName: rnode.connectionMethod == .wifi ? "wifi" : "antenna.radiowaves.left.and.right")
+
+                                            Image(systemName: rnodeConnectionIcon(rnode.connectionMethod))
                                             Text("RNode via \(rnode.connectionMethod.rawValue)")
+
+                                            if let battery = interfaceManager.rnodeBatteryStatus[conn.name] {
+
+                                                Spacer(minLength: 6)
+                                                Label("\(battery.percent)%", systemImage: batteryIcon(battery))
+                                                    .foregroundStyle(battery.percent < 20 && battery.state == .discharging ? Theme.danger : Theme.textSecondary)
+                                            }
                                         }
                                         .font(.caption)
                                         .foregroundStyle(Theme.rnodeBlue)
@@ -432,6 +466,15 @@ struct ConnectionsView: View {
                                 editConnection(conn)
                             } label: {
                                 Label("Edit", systemImage: "pencil")
+                            }
+
+                            if conn.type == .rNode {
+
+                                Button {
+                                    controllingConnection = conn
+                                } label: {
+                                    Label("Radio Controls", systemImage: "slider.horizontal.3")
+                                }
                             }
 
                             Button(role: .destructive) {
@@ -541,6 +584,13 @@ struct ConnectionsView: View {
 
             } message: {
                 Text("That QR code isn't a recognized IceNomad address.")
+            }
+            .sheet(item: $controllingConnection) { conn in
+
+                RNodeControlsView(
+                    connectionName: conn.name,
+                    connectionMethod: conn.rnodeConfig?.connectionMethod ?? .bluetooth
+                )
             }
         }
     }
@@ -804,6 +854,52 @@ struct ConnectionsView: View {
                         }
                     }
                 }
+
+            } else if rnode.connectionMethod == .usb {
+
+                #if targetEnvironment(macCatalyst)
+                // USB serial — same /dev/cu.* scan Firmware Tools uses to
+                // find a connected board, just picking a port to talk
+                // live KISS traffic over instead of the ROM bootloader.
+                VStack(alignment: .leading, spacing: 6) {
+
+                    Text("USB Port")
+
+                    if usbSerialPorts.isEmpty {
+
+                        Text("No USB-serial devices found. Plug in your RNode and tap Refresh.")
+                            .font(.caption)
+                            .foregroundStyle(Theme.textSecondary)
+
+                    } else {
+
+                        Picker("USB Port", selection: $rnode.usbSerialPath) {
+                            ForEach(usbSerialPorts, id: \.self) { port in
+                                Text((port as NSString).lastPathComponent).tag(port)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .padding(8)
+                        .background(Theme.surface)
+                        .cornerRadius(8)
+                    }
+
+                    Button {
+                        refreshUSBSerialPorts()
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .font(.caption)
+                }
+                .onAppear {
+                    refreshUSBSerialPorts()
+
+                    if rnode.usbSerialPath.isEmpty {
+                        rnode.usbSerialPath = usbSerialPorts.first ?? ""
+                    }
+                }
+                #endif
 
             } else {
 
@@ -1084,6 +1180,50 @@ struct ConnectionsView: View {
             }
         }
     }
+
+
+    func rnodeConnectionIcon(_ method: RNodeConnectionMethod) -> String {
+
+        switch method {
+        case .bluetooth: "antenna.radiowaves.left.and.right"
+        case .usb: "cable.connector"
+        case .wifi: "wifi"
+        }
+    }
+
+
+    func batteryIcon(_ status: RNodeBatteryStatus) -> String {
+
+        if status.state == .charging || status.state == .charged {
+            return "battery.100.bolt"
+        }
+
+        switch status.percent {
+        case 0..<20: return "battery.0"
+        case 20..<50: return "battery.25"
+        case 50..<80: return "battery.50"
+        default: return "battery.100"
+        }
+    }
+
+
+    #if targetEnvironment(macCatalyst)
+    /// Same /dev/cu.* scan as Firmware Tools' port list — filters out
+    /// Bluetooth-backed and debug-console pseudo-ports, which never are
+    /// an actual connected USB-serial board.
+    func refreshUSBSerialPorts() {
+
+        let devicesDirectory = "/dev"
+
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: devicesDirectory)) ?? []
+
+        usbSerialPorts = entries
+            .filter { $0.hasPrefix("cu.") }
+            .filter { !$0.contains("Bluetooth") && !$0.contains("debug-console") }
+            .sorted()
+            .map { "\(devicesDirectory)/\($0)" }
+    }
+    #endif
 
 
     func labeledField(_ title: String,

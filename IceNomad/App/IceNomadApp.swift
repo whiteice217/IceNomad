@@ -25,7 +25,7 @@ struct IceNomadApp: App {
 
                 if startup.finished {
 
-                    ContentView()
+                    ContentView(initialTab: startup.pendingPostSetupTab)
 
                 } else {
 

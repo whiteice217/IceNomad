@@ -33,6 +33,16 @@
 //  ephemeral-key prefix, unlike Identity.encrypt (the handshake already
 //  did the key exchange).
 //
+//  Post-handshake identification (identify()/LINKIDENTIFY, RNS.Packet
+//  context 0xFB): a link's ECDH handshake alone never reveals either
+//  side's long-term identity — that's "initiator anonymity" by design.
+//  The INITIATOR may optionally call identify(as:) once the link is
+//  active to prove who they are to the specific peer on the other end
+//  (signed_data = link_id + identity.publicKeyBytes, sent link-encrypted).
+//  Confirmed byte-for-byte against real Link.py (identify() ~line 454,
+//  the LINKIDENTIFY receive/validate branch ~line 963) — this was
+//  entirely unimplemented in IceNomad prior to this addition.
+//
 
 import Foundation
 import CryptoKit
@@ -71,6 +81,13 @@ final class ReticulumLink {
     var onEstablished: (() -> Void)?
     var onFailed: (() -> Void)?
     var onClosed: (() -> Void)?
+
+    /// The peer's identity, once revealed via LINKIDENTIFY — nil until
+    /// then. Only ever set on an ACCEPTED (responder-role) link: initiator
+    /// anonymity means we never learn who opened a link to us unless they
+    /// explicitly call identify(). Matches RNS.Link.get_remote_identity().
+    private(set) var remoteIdentity: ReticulumIdentity?
+    var onRemoteIdentified: ((ReticulumIdentity) -> Void)?
 
     /// Fires for plain (context=NONE) data delivered on an ACCEPTED
     /// (responder-role) link — e.g. an LXMF message sent via DIRECT
@@ -276,6 +293,34 @@ final class ReticulumLink {
     }
 
 
+    /// Reveals our identity to the remote peer over the already-active,
+    /// encrypted link — RNS.Link.identify()/LINKIDENTIFY. Initiator-only
+    /// (matches Link.py: the responder side never calls this — only
+    /// validates it), and only the peer on the other end of THIS link
+    /// learns who we are; initiator anonymity is preserved for everyone
+    /// else. plaintext = our 64-byte combined public key + a signature
+    /// over (link_id + public key), signed with our long-term identity —
+    /// proves control of that identity without exposing our private key.
+    @discardableResult
+    func identify(as identity: ReticulumIdentity) -> Bool {
+
+        guard isInitiator, status == .active else {
+            return false
+        }
+
+        let signedData = linkId + identity.publicKeyBytes
+
+        guard let signature = identity.sign(signedData),
+              let framed = try? encryptedLinkPacket(context: PacketBuilder.Context.linkIdentify, plaintext: identity.publicKeyBytes + signature)
+        else {
+            return false
+        }
+
+        send?(framed)
+        return true
+    }
+
+
     // MARK: - Encrypt / decrypt (Token keyed by derivedKey — no ephemeral prefix)
 
     func encrypt(_ plaintext: Data) throws -> Data {
@@ -393,6 +438,9 @@ final class ReticulumLink {
         case PacketBuilder.Context.resource, PacketBuilder.Context.resourceHmu,
              PacketBuilder.Context.resourceIcl:
             handleResourcePacket(context: context, payload: payload)
+
+        case PacketBuilder.Context.linkIdentify:
+            handleLinkIdentify(payload)
 
         case PacketBuilder.Context.linkClose:
             handleLinkClose(payload)
@@ -555,6 +603,35 @@ final class ReticulumLink {
         default:
             break
         }
+    }
+
+
+    /// Handles an incoming LINKIDENTIFY on a link we accepted — the
+    /// initiator revealing their identity to us. plaintext = 64-byte
+    /// combined public key + 64-byte Ed25519 signature over
+    /// (link_id + public_key). Responder-only, matching Link.py's
+    /// `if not self.initiator` guard — an initiator ignores this context
+    /// since only it can legitimately send one.
+    private func handleLinkIdentify(_ ciphertext: Data) {
+
+        guard !isInitiator, remoteIdentity == nil,
+              let plaintext = try? decrypt(ciphertext),
+              plaintext.count == ReticulumIdentity.publicKeySize + 64
+        else {
+            return
+        }
+
+        let publicKey = Data(plaintext.prefix(ReticulumIdentity.publicKeySize))
+        let signature = Data(plaintext.suffix(64))
+        let signedData = linkId + publicKey
+
+        guard let identity = ReticulumIdentity(publicKeyBytes: publicKey), identity.validate(signature: signature, message: signedData) else {
+            Log.reticulum.error("LINKIDENTIFY on link \(self.linkId.hexString, privacy: .public) failed signature validation — dropped")
+            return
+        }
+
+        remoteIdentity = identity
+        onRemoteIdentified?(identity)
     }
 
 

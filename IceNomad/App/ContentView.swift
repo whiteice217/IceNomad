@@ -9,31 +9,31 @@ import SwiftUI
 
 enum AppTab: CaseIterable, Identifiable {
 
-    case connections
-    case announce
     case messages
+    case announce
     case browser
     case settings
+    case connections
 
     var id: Self { self }
 
     var label: String {
         switch self {
-        case .connections: return "Connections"
-        case .announce: return "Announce"
         case .messages: return "Messages"
+        case .announce: return "Announce"
         case .browser: return "Browser"
         case .settings: return "Settings"
+        case .connections: return "Connections"
         }
     }
 
     var icon: String {
         switch self {
-        case .connections: return "network"
-        case .announce: return "shareplay"
         case .messages: return "message"
+        case .announce: return "shareplay"
         case .browser: return "globe"
         case .settings: return "gearshape"
+        case .connections: return "network"
         }
     }
 }
@@ -41,7 +41,15 @@ enum AppTab: CaseIterable, Identifiable {
 
 struct ContentView: View {
 
-    @State private var selectedTab: AppTab = .connections
+    @State private var selectedTab: AppTab
+
+    /// Defaults to Browser — IceNomad's central, day-to-day tab. Passed
+    /// explicitly right after the first-run setup wizard routes the user
+    /// somewhere specific instead (e.g. "Set Up an RNode" lands on
+    /// Connections) — see StartupManager.pendingPostSetupTab.
+    init(initialTab: AppTab? = nil) {
+        _selectedTab = State(initialValue: initialTab ?? .browser)
+    }
 
     /// Set by BrowserView when an `lxmf@<hash>` Micron link is tapped —
     /// MessagesView observes this and navigates straight to that
@@ -58,27 +66,17 @@ struct ContentView: View {
     @ObservedObject private var messageStore = MessageStore.shared
     @ObservedObject private var bannerCenter = NotificationBannerCenter.shared
 
-    private static let hasCompletedWelcomeKey = "has_completed_welcome"
-
-    @State private var isShowingWelcome = !UserDefaults.standard.bool(forKey: ContentView.hasCompletedWelcomeKey)
+    /// Identity naming + connection setup both now happen in
+    /// ConnectionSetupWizardView (see StartupManager.awaitingSetup for
+    /// the normal first-run trigger) — this is the *other* way to reach
+    /// it, wired to Settings' "Reset Connections" action.
+    @State private var isShowingSetupWizard = false
 
     var body: some View {
 
         ZStack(alignment: .top) {
 
             TabView(selection: $selectedTab) {
-
-                ConnectionsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, pendingBrowseHex: $pendingBrowseHex)
-                    .tabItem {
-                        Label(AppTab.connections.label, systemImage: AppTab.connections.icon)
-                    }
-                    .tag(AppTab.connections)
-
-                AnnounceView(selectedTab: $selectedTab, pendingBrowseHex: $pendingBrowseHex)
-                    .tabItem {
-                        Label(AppTab.announce.label, systemImage: AppTab.announce.icon)
-                    }
-                    .tag(AppTab.announce)
 
                 MessagesView()
                     .tabItem {
@@ -87,17 +85,32 @@ struct ContentView: View {
                     .tag(AppTab.messages)
                     .badge(messageStore.totalUnreadCount)
 
+                AnnounceView(selectedTab: $selectedTab, pendingBrowseHex: $pendingBrowseHex)
+                    .tabItem {
+                        Label(AppTab.announce.label, systemImage: AppTab.announce.icon)
+                    }
+                    .tag(AppTab.announce)
+
+                // Central by design — Browser (Tux as its home page) is
+                // meant to be IceNomad's day-to-day default, not one tab
+                // among equals. Sits in the middle slot on purpose.
                 BrowserView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, pendingBrowseHex: $pendingBrowseHex)
                     .tabItem {
                         Label(AppTab.browser.label, systemImage: AppTab.browser.icon)
                     }
                     .tag(AppTab.browser)
 
-                SettingsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex)
+                SettingsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, isShowingSetupWizard: $isShowingSetupWizard)
                     .tabItem {
                         Label(AppTab.settings.label, systemImage: AppTab.settings.icon)
                     }
                     .tag(AppTab.settings)
+
+                ConnectionsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, pendingBrowseHex: $pendingBrowseHex)
+                    .tabItem {
+                        Label(AppTab.connections.label, systemImage: AppTab.connections.icon)
+                    }
+                    .tag(AppTab.connections)
             }
             // Opening a chat from anywhere other than Messages' own list used
             // to route through a Binding into MessagesView and hope its
@@ -140,12 +153,12 @@ struct ContentView: View {
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: bannerCenter.current)
-        .fullScreenCover(isPresented: $isShowingWelcome) {
+        .fullScreenCover(isPresented: $isShowingSetupWizard) {
 
-            WelcomeView {
-                UserDefaults.standard.set(true, forKey: Self.hasCompletedWelcomeKey)
-                isShowingWelcome = false
-            }
+            ConnectionSetupWizardView(
+                onAddedConnection: { isShowingSetupWizard = false },
+                onSkip: { _ in isShowingSetupWizard = false }
+            )
         }
     }
 

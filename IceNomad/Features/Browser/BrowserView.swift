@@ -53,6 +53,12 @@ struct BrowserView: View {
 
             if browserState.current == nil {
 
+                // Momentary — connect(to:) below fires the instant this
+                // appears, so this only shows for the brief window before
+                // Tux's real content replaces it. Never re-fires once
+                // `current` is set (nothing nils it back out), matching
+                // "the first load of the session," not every tab switch.
+
                 // Nothing navigated to yet — lead with the logo and
                 // either saved pages or a short explainer, instead of
                 // dropping straight into placeholder Micron content.
@@ -102,7 +108,11 @@ struct BrowserView: View {
 
                                 MicronView(
                                     source: browserState.content,
-                                    availableWidth: max(Self.virtualTerminalWidth, geometry.size.width - 32) // matches the .padding() below
+                                    availableWidth: max(Self.virtualTerminalWidth, geometry.size.width - 32), // matches the .padding() below
+                                    formState: browserState.formState,
+                                    searchSuggestions: browserState.pageSuggestions,
+                                    onSearchQueryChange: { browserState.updatePageSuggestions(for: $0) },
+                                    onSelectSearchSuggestion: { browserState.selectSuggestion($0) }
                                 ) { link in
 
                                     if link.isMessagingLink, let hex = link.destinationHashHex {
@@ -192,6 +202,23 @@ struct BrowserView: View {
             browserState.connect(to: hex)
             pendingBrowseHex = nil
         }
+        .onAppear {
+
+            // Tux as the Browser tab's home page is opt-in on a
+            // successful startup preload only (StartupManager +
+            // TuxPreloadStore) — shown instantly, no loading state to
+            // watch. Without one (no connection, bypassed at the splash
+            // screen, or a genuine failure), Browser falls back to
+            // exactly its original behavior — the static favorites/
+            // welcome screen (current stays nil) — rather than attempting
+            // its own live fetch, which is exactly the loading state
+            // Bryan didn't want to see, and would be redundant with the
+            // explicit bypass he already chose at startup if that's why
+            // there's no preload.
+            if browserState.current == nil, let preloaded = TuxPreloadStore.shared.content {
+                browserState.loadPreloadedHome(content: preloaded)
+            }
+        }
     }
 
 
@@ -199,6 +226,18 @@ struct BrowserView: View {
 
         VStack(spacing: 8) {
             addressRow
+
+            #if targetEnvironment(macCatalyst)
+            // iPhone's suggestions live inside the edit sheet instead —
+            // no inline field there to drop a list under (see addressRow).
+            if !browserState.addressSuggestions.isEmpty {
+                AddressSuggestionsList(suggestions: browserState.addressSuggestions) { suggestion in
+                    browserState.selectSuggestion(suggestion)
+                    addressDraft = browserState.addressText
+                }
+            }
+            #endif
+
             controlsRow
         }
         .padding(.horizontal)
@@ -206,7 +245,12 @@ struct BrowserView: View {
         .background(.bar)
         .sheet(isPresented: $isEditingAddress) {
 
-            AddressEditSheet(text: $addressDraft) {
+            AddressEditSheet(
+                text: $addressDraft,
+                suggestions: browserState.addressSuggestions,
+                onQueryChange: { browserState.updateAddressSuggestions(for: $0) },
+                onSelectSuggestion: { suggestion in browserState.selectSuggestion(suggestion) }
+            ) {
                 browserState.addressText = addressDraft
                 browserState.navigateFromAddressBar()
             }
@@ -233,10 +277,15 @@ struct BrowserView: View {
                 // other way (a tapped link, Back/Forward, a favorite) —
                 // don't leave it showing a stale address.
                 addressDraft = newValue
+                browserState.clearAddressSuggestions()
+            }
+            .onChange(of: addressDraft) { _, newValue in
+                browserState.updateAddressSuggestions(for: newValue)
             }
             .onSubmit {
                 browserState.addressText = addressDraft
                 browserState.navigateFromAddressBar()
+                browserState.clearAddressSuggestions()
             }
         #else
         // Tapping opens a full-size sheet to edit the address — the
@@ -245,6 +294,7 @@ struct BrowserView: View {
         // field's contents past the visible edge.
         Button {
             addressDraft = browserState.addressText
+            browserState.clearAddressSuggestions()
             isEditingAddress = true
         } label: {
 
@@ -379,11 +429,63 @@ struct BrowserView: View {
 }
 
 
+// MARK: - Address bar autocomplete (Tux-backed, both platforms)
+
+/// Live, database-backed suggestions — sourced from Tux's own search
+/// index over Reticulum, not local text prediction — shown under the
+/// Mac's inline address field and inside the iPhone edit sheet alike.
+struct AddressSuggestionsList: View {
+
+    let suggestions: [BrowserState.Suggestion]
+    let onSelect: (BrowserState.Suggestion) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+
+            ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
+
+                Button {
+                    onSelect(suggestion)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+
+                        Text(suggestion.label)
+                            .font(.system(.footnote, design: .monospaced))
+                            .foregroundStyle(Theme.textPrimary)
+                            .lineLimit(1)
+
+                        if !suggestion.snippet.isEmpty {
+                            Text(suggestion.snippet)
+                                .font(.caption2)
+                                .foregroundStyle(Theme.textSecondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if index < suggestions.count - 1 {
+                    Divider()
+                }
+            }
+        }
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+
 // MARK: - Address edit sheet
 
 private struct AddressEditSheet: View {
 
     @Binding var text: String
+    let suggestions: [BrowserState.Suggestion]
+    let onQueryChange: (String) -> Void
+    let onSelectSuggestion: (BrowserState.Suggestion) -> Void
     let onSubmit: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -400,6 +502,35 @@ private struct AddressEditSheet: View {
                         .autocorrectionDisabled()
                         .lineLimit(3...6)
                         .focused($isFocused)
+                        .onChange(of: text) { _, newValue in
+                            onQueryChange(newValue)
+                        }
+                }
+
+                if !suggestions.isEmpty {
+                    Section("Suggestions") {
+                        ForEach(suggestions) { suggestion in
+                            Button {
+                                onSelectSuggestion(suggestion)
+                                dismiss()
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+
+                                    Text(suggestion.label)
+                                        .font(.system(.footnote, design: .monospaced))
+                                        .foregroundStyle(Theme.textPrimary)
+
+                                    if !suggestion.snippet.isEmpty {
+                                        Text(suggestion.snippet)
+                                            .font(.caption2)
+                                            .foregroundStyle(Theme.textSecondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
             }
             .navigationTitle("Edit Address")
