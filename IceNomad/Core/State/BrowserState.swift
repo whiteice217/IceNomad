@@ -17,6 +17,23 @@ final class BrowserState: ObservableObject {
     struct PageRef: Equatable {
         var destinationHashHex: String
         var path: String
+
+        /// Parses a typed "hash:/path" address — the same validation
+        /// `navigateFromAddressBar()` has always applied (32 hex-digit
+        /// hash, empty path defaults to the index page), pulled out here
+        /// so a second real caller (the Settings homepage field) doesn't
+        /// need its own copy of the same rules.
+        static func parse(_ raw: String) -> PageRef? {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let colonIndex = trimmed.firstIndex(of: ":") else { return nil }
+
+            let hash = String(trimmed[trimmed.startIndex..<colonIndex]).lowercased()
+            let path = String(trimmed[trimmed.index(after: colonIndex)...])
+
+            guard hash.count == 32, hash.allSatisfy({ $0.isHexDigit }) else { return nil }
+
+            return PageRef(destinationHashHex: hash, path: path.isEmpty ? "/page/index.mu" : path)
+        }
     }
 
     /// Tux's real, live Reticulum destination hash — IceNomad's built-in
@@ -274,16 +291,10 @@ final class BrowserState: ObservableObject {
 
         let raw = addressText.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if let colonIndex = raw.firstIndex(of: ":") {
+        if raw.contains(":") {
 
-            let hash = String(raw[raw.startIndex..<colonIndex]).lowercased()
-            let path = String(raw[raw.index(after: colonIndex)...])
-
-            guard hash.count == 32, hash.allSatisfy({ $0.isHexDigit }) else {
-                return
-            }
-
-            navigate(to: PageRef(destinationHashHex: hash, path: path.isEmpty ? "/page/index.mu" : path))
+            guard let ref = PageRef.parse(raw) else { return }
+            navigate(to: ref)
 
         } else if let hex = current?.destinationHashHex {
 
@@ -425,6 +436,28 @@ final class BrowserState: ObservableObject {
 
     // MARK: - Fetching (real Link + Request/Response, over Resource for larger pages)
 
+    /// Two tiers, in order: Tux's cached-.mu view (a real cached copy if
+    /// Tux has crawled this page, or Tux fetching it live on the
+    /// client's behalf if not — already built, previously only reached
+    /// via search-result links, now also tried directly); if Tux
+    /// doesn't know the page at all, fall back to genuine live NomadNet
+    /// browsing — connecting straight to the target node, this app's
+    /// original and default behavior.
+    ///
+    /// An AI-assisted "Reader" tier (Tux rewriting a page's prose for
+    /// mobile via Ollama) was built and real-device-tested 2026-08-04,
+    /// then removed after live testing found the model fabricating
+    /// entire sentences with no relation to the source page — passed
+    /// every guardrail added (URL/hash exclusion, protected-terms
+    /// allowlist, preamble detection) because it wasn't wrong in any of
+    /// *those* specific ways, just wholesale invented. See Roadmap &
+    /// Ideas.md, "AI Reader Mode disabled..." for the full story — the
+    /// real lesson was that a small model rewriting arbitrary open text
+    /// doesn't converge to safe no matter how many narrow guardrails
+    /// get added, and the fix isn't another guardrail. Ollama/the AI
+    /// side of Tux is being reframed toward its original purpose
+    /// instead — extraction, categorization, and search-ranking
+    /// weight — not generating anything a user reads as page content.
     private func loadPage(for ref: PageRef) {
 
         if let connectedDestinationHashHex, connectedDestinationHashHex != ref.destinationHashHex,
@@ -451,6 +484,80 @@ final class BrowserState: ObservableObject {
 
         isLoading = true
         setContent(BrowserState.loadingContent(for: ref))
+
+        // Tux's cached-.mu tier only makes sense to try when Tux is
+        // actually reachable at all — otherwise this is a wasted
+        // connect-then-timeout delay on *every* page load for anyone
+        // not using the IceNomad Public Relay. TuxPreloadStore.content
+        // being non-nil is the same signal StartupManager already uses
+        // for "Tux is up." Browsing Tux's own pages skips straight to
+        // live too. A user can also force this unconditionally via
+        // Settings > Browsing ("Prefer Cached Pages" off) — checked
+        // first so it short-circuits before either of the other checks.
+        guard BrowserSettings.shared.preferCachedContent,
+              TuxPreloadStore.shared.content != nil, ref.destinationHashHex != Self.tuxDestinationHashHex else {
+            loadDirectFromNode(ref, token: token)
+            return
+        }
+
+        fetchTuxCachedMu(for: ref, token: token) { [weak self] found in
+
+            guard let self, self.loadToken == token, !found else { return }
+
+            self.loadDirectFromNode(ref, token: token)
+        }
+    }
+
+
+    /// Tier 1: Tux's existing cached-.mu view (/page/view.mu) — a real
+    /// cached copy if Tux has already crawled this page, or Tux fetching
+    /// it live on the client's behalf if not (see crawler.py's
+    /// _serve_view, built earlier this project, previously only reached
+    /// via search-result links). Matching against Tux's own "Not found"
+    /// heading text isn't perfectly robust — a real page could in theory
+    /// contain that exact phrase — but it's Tux's own established
+    /// not-found convention, and good enough for this to fall through to
+    /// tier 3 rather than show Tux's error page for a node it never knew.
+    private func fetchTuxCachedMu(for ref: PageRef, token: UUID, completion: @escaping (Bool) -> Void) {
+
+        LinkManager.shared.connect(to: Self.tuxDestinationHashHex) { [weak self] connectResult in
+
+            guard case .success(let link) = connectResult else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+
+            let payload: [(MsgpackValue, MsgpackValue)] = [
+                (.string("var_node"), .string(ref.destinationHashHex)),
+                (.string("var_path"), .string(ref.path)),
+            ]
+
+            link.request(path: "/page/view.mu", data: .map(payload)) { [weak self] requestResult in
+
+                DispatchQueue.main.async {
+
+                    guard let self, self.loadToken == token,
+                          case .success(let data) = requestResult,
+                          let text = String(data: data, encoding: .utf8),
+                          !text.contains(">Not found")
+                    else {
+                        completion(false)
+                        return
+                    }
+
+                    self.isLoading = false
+                    self.setContent(text)
+                    completion(true)
+                }
+            }
+        }
+    }
+
+
+    /// Tier 2: genuine live NomadNet browsing, connecting straight to
+    /// the target node — unchanged from this app's original and only
+    /// behavior before tonight.
+    private func loadDirectFromNode(_ ref: PageRef, token: UUID) {
 
         LinkManager.shared.connect(to: ref.destinationHashHex) { [weak self] connectResult in
 

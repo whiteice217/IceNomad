@@ -51,6 +51,8 @@ struct SettingsView: View {
 
                 NotificationSettingsSection(isPickingCustomSound: $isPickingCustomNotificationSound)
 
+                BrowserSettingsSection()
+
                 Section {
 
                     Button(role: .destructive) {
@@ -75,8 +77,6 @@ struct SettingsView: View {
                 } footer: {
                     Text("Also useful if you want to switch to the IceNomad Public Relay for Tux search, or start over with a different RNode.")
                 }
-
-                FirmwareToolsSection()
 
                 Section {
 
