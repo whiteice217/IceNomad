@@ -4,9 +4,11 @@
 //
 //  A management surface for saved contacts (rename, remove, multi-select
 //  delete) — they were only ever visible passively at the bottom of New
-//  Conversation before, with no way to edit or clear them. Same floating-
-//  popover pattern as MUSitesDropdown (Browser) and FavoritesManagerPopover
-//  (Browser).
+//  Conversation before, with no way to edit or clear them. Presented by
+//  MessagesView as a left-side drawer (matching Announced Contacts on
+//  the right — Bryan's explicit ask, both platforms), not a sheet
+//  anymore — flexes to fill whatever height/width the drawer container
+//  gives it rather than capping at a fixed popover size.
 //
 
 import SwiftUI
@@ -67,7 +69,7 @@ struct ContactsManagerPopover: View {
             .padding(.top, 12)
             .padding(.bottom, 8)
 
-            if contactStore.contacts.isEmpty {
+            if contactStore.contacts.isEmpty && historyOnlyEntries.isEmpty {
 
                 Text("No contacts saved yet — labeling someone in a chat, or adding one from New Message, saves them here.")
                     .font(.subheadline)
@@ -75,8 +77,15 @@ struct ContactsManagerPopover: View {
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .center)
 
+                Spacer()
+
             } else {
 
+                // Contacts and History used to be two separately-capped
+                // ScrollViews (sized for a fixed-height popover) — now
+                // one continuous scroll region, since the drawer this
+                // is presented in flexes to fill real screen height
+                // instead of a fixed popover size.
                 ScrollView {
 
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -88,38 +97,42 @@ struct ContactsManagerPopover: View {
                             Divider()
                                 .padding(.leading)
                         }
+
+                        if !historyOnlyEntries.isEmpty {
+
+                            historySectionHeader
+
+                            ForEach(historyOnlyEntries) { entry in
+
+                                historyRow(entry)
+
+                                Divider()
+                                    .padding(.leading)
+                            }
+                        }
                     }
-                }
-                .frame(maxHeight: 360)
-
-                if isSelecting {
-
-                    Button(role: .destructive) {
-
-                        contactStore.removeContacts(hexes: selectedHexes)
-                        selectedHexes.removeAll()
-                        isSelecting = false
-
-                    } label: {
-                        Label("Delete \(selectedHexes.count) Selected", systemImage: "trash")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.danger)
-                    .disabled(selectedHexes.isEmpty)
-                    .padding()
                 }
             }
 
-            if !historyOnlyEntries.isEmpty {
+            if isSelecting {
 
-                historySection
+                Button(role: .destructive) {
+
+                    contactStore.removeContacts(hexes: selectedHexes)
+                    selectedHexes.removeAll()
+                    isSelecting = false
+
+                } label: {
+                    Label("Delete \(selectedHexes.count) Selected", systemImage: "trash")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.danger)
+                .disabled(selectedHexes.isEmpty)
+                .padding()
             }
         }
-        // Was a fixed 300pt for the old popover chrome — now presented as
-        // a .sheet (see MessagesView), which needs to flex to fill an
-        // iPhone-width screen rather than leaving empty space on the sides.
-        .frame(maxWidth: 400)
+        .frame(maxHeight: .infinity, alignment: .top)
         .alert("Rename Contact", isPresented: renamingBinding) {
 
             TextField("Name", text: $renameText)
@@ -157,7 +170,10 @@ struct ContactsManagerPopover: View {
 
     // MARK: - History
 
-    private var historySection: some View {
+    /// Just the section header + description now — historyOnlyEntries'
+    /// rows render inline in the same LazyVStack as contactRow above
+    /// (one continuous scroll region), not their own capped ScrollView.
+    private var historySectionHeader: some View {
 
         VStack(alignment: .leading, spacing: 0) {
 
@@ -184,21 +200,6 @@ struct ContactsManagerPopover: View {
                 .foregroundStyle(Theme.textSecondary)
                 .padding(.horizontal)
                 .padding(.bottom, 8)
-
-            ScrollView {
-
-                LazyVStack(alignment: .leading, spacing: 0) {
-
-                    ForEach(historyOnlyEntries) { entry in
-
-                        historyRow(entry)
-
-                        Divider()
-                            .padding(.leading)
-                    }
-                }
-            }
-            .frame(maxHeight: 240)
         }
     }
 

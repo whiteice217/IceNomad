@@ -6,9 +6,14 @@
 //  so any view can observe it regardless of which InterfaceManager
 //  instance is actually receiving traffic.
 //
-//  This is intentionally NOT persisted — it repopulates from live
-//  announces each time the app runs. For persisted, user-curated
-//  entries (with custom labels), see ContactStore.
+//  The live peer list itself is intentionally NOT persisted — it
+//  repopulates from live announces each time the app runs. For
+//  persisted, user-curated entries (with custom labels), see
+//  ContactStore. Display *names* are the one exception (see
+//  persistedNames below) — losing hop count/interface type on relaunch
+//  is harmless, but a name you've already learned reverting to
+//  "Unnamed" every time the app restarts, until that peer happens to
+//  announce again, is a real regression a user notices immediately.
 //
 
 import Foundation
@@ -71,23 +76,20 @@ final class PeerStore: ObservableObject {
 
     static let shared = PeerStore()
 
-    static let announceLimitOptions = [10, 25, 75, 100, 250, 500]
-    private static let maxAnnouncesKey = "peer_store_max_announces"
-    // A default of 75 was set before this app had ever been tested
-    // against a real, busy public relay — confirmed live (rns.icenomad.net,
-    // bridged to a wider mesh) sustaining roughly one *new distinct* real
-    // peer announcing per second. At that rate the old default was
-    // exceeded in about a minute of being connected, silently evicting
-    // your own other devices' entries before you'd ever get a chance to
-    // see them in the Announce tab — this looked exactly like "announces
-    // don't work," when the underlying networking was actually fine at
-    // every layer (verified via a live log stream, packet-by-packet).
-    private static let defaultMaxAnnounces = 500
+    // Used to be user-configurable (a picker on the old Announce tab,
+    // 10-500 range) — that tab is gone now, and Bryan asked to just fix
+    // this "behind the scenes" instead of rebuilding a settings UI for
+    // it: "I doubt we would need more than that." 250 per category is
+    // comfortably above the busiest real-world traffic actually measured
+    // (rns.icenomad.net, bridged to a wider mesh, sustaining roughly one
+    // *new distinct* real peer announcing per second) while still
+    // bounding memory — a much lower default (75) was the original
+    // culprit behind an "announces don't work" report that turned out to
+    // be silent eviction, not a networking bug.
+    private static let maxAnnouncesPerCategory = 250
 
     private init() {
-
-        let saved = UserDefaults.standard.integer(forKey: Self.maxAnnouncesKey)
-        maxAnnouncesPerCategory = saved == 0 ? Self.defaultMaxAnnounces : saved
+        persistedNames = UserDefaults.standard.dictionary(forKey: Self.persistedNamesKey) as? [String: String] ?? [:]
     }
 
 
@@ -111,20 +113,22 @@ final class PeerStore: ObservableObject {
         lastSeenByHex[hex] ?? .distantPast
     }
 
-    /// Caps how many announced peers we keep, **per category** (LXMF /
-    /// MU Sites / Other — the same three buckets Announce's own scope
-    /// picker uses) — not one shared pool across all of them. A single
-    /// shared cap meant a busy relay's flood of unrelated real-world
-    /// "Other" traffic (confirmed live: ~1 new distinct peer/second)
-    /// could crowd out and evict LXMF/MU-Site peers you actually care
-    /// about, even with a generous overall number. Oldest (by lastSeen)
-    /// within a category is evicted first once *that category* exceeds
-    /// this — other categories are untouched.
-    @Published var maxAnnouncesPerCategory: Int {
+
+    private static let persistedNamesKey = "peer_store_persisted_names"
+
+    /// The last name actually heard for a hex, surviving relaunch even
+    /// though the live `peers` list doesn't. Consulted by
+    /// ContactStore.displayName(for:) as a fallback below the live
+    /// peer's own name (which wins if this session has already heard a
+    /// fresher announce) but above the raw-hash "Unnamed" text.
+    private var persistedNames: [String: String] {
         didSet {
-            UserDefaults.standard.set(maxAnnouncesPerCategory, forKey: Self.maxAnnouncesKey)
-            enforceLimit()
+            UserDefaults.standard.set(persistedNames, forKey: Self.persistedNamesKey)
         }
+    }
+
+    func lastKnownDisplayName(for hex: String) -> String? {
+        persistedNames[hex]
     }
 
     private var index: [String: Int] = [:]
@@ -199,6 +203,7 @@ final class PeerStore: ObservableObject {
 
             if let name = announce.displayName {
                 peers[existingIndex].displayName = name
+                persistedNames[hex] = name
             }
 
         } else {
@@ -215,6 +220,10 @@ final class PeerStore: ObservableObject {
             index[hex] = peers.count
             peers.append(peer)
             enforceLimit()
+
+            if let name = announce.displayName {
+                persistedNames[hex] = name
+            }
         }
     }
 
@@ -324,11 +333,11 @@ final class PeerStore: ObservableObject {
 
         for categoryPeers in categorized(peers) {
 
-            guard categoryPeers.count > maxAnnouncesPerCategory else {
+            guard categoryPeers.count > Self.maxAnnouncesPerCategory else {
                 continue
             }
 
-            let excess = categoryPeers.count - maxAnnouncesPerCategory
+            let excess = categoryPeers.count - Self.maxAnnouncesPerCategory
             let evictionCandidates = categoryPeers
                 .filter { !ContactStore.shared.isContact($0.destinationHashHex) && !pinnedHashes.contains($0.destinationHashHex) }
                 .sorted { lastSeen(for: $0.destinationHashHex) < lastSeen(for: $1.destinationHashHex) }
@@ -352,11 +361,10 @@ final class PeerStore: ObservableObject {
     }
 
 
-    /// Splits into the same three buckets AnnounceView's own scope
-    /// picker uses (`Peer.isNomadNetNode`/`isLXMFPeer` are real positive
-    /// checks against each aspect's actual expected name hash, not a
-    /// guess) — mutually exclusive by construction, since a peer's
-    /// nameHash matches at most one of the two real aspects.
+    /// Splits by destination kind (`Peer.isNomadNetNode`/`isLXMFPeer` are
+    /// real positive checks against each aspect's actual expected name
+    /// hash, not a guess) — mutually exclusive by construction, since a
+    /// peer's nameHash matches at most one of the two real aspects.
     private func categorized(_ peers: [Peer]) -> [[Peer]] {
 
         var nodes: [Peer] = []

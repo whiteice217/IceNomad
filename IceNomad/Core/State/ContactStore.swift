@@ -93,8 +93,11 @@ final class ContactStore: ObservableObject {
 
     /// Resolves what to actually display for a destination hash, in priority order:
     /// 1. A custom label you've set
-    /// 2. The peer's live announced name, if currently known
-    /// 3. A short, readable fallback built from the hash
+    /// 2. The peer's live announced name, if currently known this session
+    /// 3. The last name we ever heard for this hash, even across a
+    ///    relaunch (PeerStore's live list is session-only, but names are
+    ///    persisted separately — see PeerStore.persistedNames)
+    /// 4. A short, readable fallback built from the hash
     func displayName(for hex: String) -> String {
 
         if let label = contact(for: hex)?.customLabel, !label.isEmpty {
@@ -103,6 +106,10 @@ final class ContactStore: ObservableObject {
 
         if let announced = PeerStore.shared.peers.first(where: { $0.destinationHashHex == hex })?.displayName {
             return announced
+        }
+
+        if let lastKnown = PeerStore.shared.lastKnownDisplayName(for: hex) {
+            return lastKnown
         }
 
         return "Unnamed (\(String(hex.prefix(8))))"
