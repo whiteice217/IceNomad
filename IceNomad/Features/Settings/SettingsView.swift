@@ -2,6 +2,20 @@
 //  SettingsView.swift
 //  IceNomad
 //
+//  Every settings area with more than one control behind a button
+//  pushing to its own page — Bryan's call, 2026-08-05, generalizing
+//  the "Manage Connections" pattern this list already used to
+//  Browsing and Notifications too — rather than each living inline as
+//  its own Section here. What's left inline is genuinely flat: single
+//  links/actions with nothing further to configure. Sections below are
+//  ordered by importance (Bryan's explicit ask): Getting Started first
+//  — a first-time user opening Settings confused about what to do
+//  benefits from a signpost before anything else, and it already
+//  explains everything below it — then connections (nothing else works
+//  without one), then Browsing (Browser is this app's central, day-to-
+//  day tab), then Notifications, then the occasional-use reset action,
+//  then support/feedback, then donating.
+//
 
 import SwiftUI
 
@@ -9,11 +23,13 @@ struct SettingsView: View {
 
     @Binding var selectedTab: AppTab
     @Binding var pendingChatHex: String?
+    /// Threaded through only so it can be handed to ConnectionsView,
+    /// which still needs it for QR-scan routing (a scanned NomadNet
+    /// page hands off to Browser) now that Connections lives behind a
+    /// NavigationLink here instead of its own tab.
+    @Binding var pendingBrowseHex: String?
     @Binding var isShowingSetupWizard: Bool
 
-    @ObservedObject private var userProfile = UserProfile.shared
-
-    @State private var isPickingCustomNotificationSound = false
     @State private var isConfirmingConnectionsReset = false
 
     /// Bryan's own Mac IceNomad LXMF address — lets a user report a bug
@@ -26,32 +42,51 @@ struct SettingsView: View {
 
                 Section {
 
-                    TextField("Display Name", text: $userProfile.displayName)
-
-                    if userProfile.hasUnannouncedNameChange {
-
-                        Button {
-                            InterfaceManager.shared.sendAnnounce()
-                        } label: {
-                            Label("Name Changed — Announce Now", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
-                                .foregroundStyle(Theme.warning)
-                        }
+                    NavigationLink {
+                        UserGuideView()
+                    } label: {
+                        Label("Getting Started", systemImage: "book")
                     }
 
-                } header: {
-                    Text("Your Identity")
                 } footer: {
-
-                    if userProfile.hasUnannouncedNameChange {
-                        Text("Other peers still see your old name until you announce again — they only learn it from an announce, not automatically.")
-                    } else {
-                        Text("Shown to others as your name when you announce.")
-                    }
+                    Text("New to Reticulum? A plain-language walkthrough of what it is, messaging, browsing, and where to go if you get stuck.")
                 }
 
-                NotificationSettingsSection(isPickingCustomSound: $isPickingCustomNotificationSound)
+                Section {
 
-                BrowserSettingsSection()
+                    NavigationLink {
+                        ConnectionsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, pendingBrowseHex: $pendingBrowseHex)
+                    } label: {
+                        Label("Manage Connections", systemImage: "network")
+                    }
+
+                } footer: {
+                    Text("TCP relays and RNode radios — add, edit, or remove how IceNomad reaches the Reticulum network.")
+                }
+
+                Section {
+
+                    NavigationLink {
+                        BrowserSettingsView()
+                    } label: {
+                        Label("Browsing", systemImage: "globe")
+                    }
+
+                } footer: {
+                    Text("Tux's cache and search suggestions, and your Browser home page.")
+                }
+
+                Section {
+
+                    NavigationLink {
+                        NotificationSettingsView()
+                    } label: {
+                        Label("Notifications", systemImage: "bell")
+                    }
+
+                } footer: {
+                    Text("Whether a sound plays on a new message, and which one.")
+                }
 
                 Section {
 
@@ -119,15 +154,54 @@ struct SettingsView: View {
                 } footer: {
                     Text("IceNomad is a hobby project, built and maintained out of pocket. If it's useful to you, donations are deeply appreciated — every bit goes back into development and upkeep.")
                 }
+
+                Section {
+
+                    HStack {
+                        Text("Version")
+                        Spacer()
+                        Text(appVersionString)
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+
+                    Button {
+                        isCheckingForUpdate = true
+                        AppUpdateChecker.shared.checkForUpdate { found in
+                            isCheckingForUpdate = false
+                            if !found { isUpToDateAlertPresented = true }
+                        }
+                    } label: {
+                        HStack {
+                            Text("Check for Updates")
+                            if isCheckingForUpdate {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(isCheckingForUpdate)
+                }
             }
             .scrollContentBackground(.hidden)
             .background(Theme.background)
             .navigationTitle("Settings")
-            .sheet(isPresented: $isPickingCustomNotificationSound) {
-                AudioFileImporterView { url in
-                    NotificationSettings.shared.setCustomSound(url: url)
-                }
+            .alert("You're Up to Date", isPresented: $isUpToDateAlertPresented) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Version \(appVersionString) is the latest available.")
             }
         }
+    }
+
+    @State private var isCheckingForUpdate = false
+    @State private var isUpToDateAlertPresented = false
+
+    /// "1.0 (3)" — marketing version plus build number, so two builds
+    /// sharing a marketing version (e.g. between releases) still read as
+    /// distinguishable to anyone reporting a bug.
+    private var appVersionString: String {
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
+        return "\(short) (\(build))"
     }
 }

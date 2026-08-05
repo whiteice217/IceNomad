@@ -10,30 +10,24 @@ import SwiftUI
 enum AppTab: CaseIterable, Identifiable {
 
     case messages
-    case announce
     case browser
     case settings
-    case connections
 
     var id: Self { self }
 
     var label: String {
         switch self {
         case .messages: return "Messages"
-        case .announce: return "Announce"
         case .browser: return "Browser"
         case .settings: return "Settings"
-        case .connections: return "Connections"
         }
     }
 
     var icon: String {
         switch self {
         case .messages: return "message"
-        case .announce: return "shareplay"
         case .browser: return "globe"
         case .settings: return "gearshape"
-        case .connections: return "network"
         }
     }
 }
@@ -45,8 +39,8 @@ struct ContentView: View {
 
     /// Defaults to Browser — IceNomad's central, day-to-day tab. Passed
     /// explicitly right after the first-run setup wizard routes the user
-    /// somewhere specific instead (e.g. "Set Up an RNode" lands on
-    /// Connections) — see StartupManager.pendingPostSetupTab.
+    /// somewhere specific instead — see StartupManager.pendingPostSetupTab.
+    /// (Connections is reached via Settings now, not its own tab.)
     init(initialTab: AppTab? = nil) {
         _selectedTab = State(initialValue: initialTab ?? .browser)
     }
@@ -57,14 +51,19 @@ struct ContentView: View {
     /// Messages are sibling tabs with no other shared state.
     @State private var pendingChatHex: String?
 
-    /// Set by AnnounceView's "Browse" swipe action — BrowserView observes
-    /// this and connects to that node, the reverse direction of
-    /// pendingChatHex above. Replaces the old in-Browser node drawer: node
-    /// selection now happens from the Announce tab instead of a popup.
+    /// Set after a QR scan (Connections) resolves to a NomadNet page —
+    /// BrowserView observes this and connects to that node. The
+    /// Announce tab used to also set this via a "Browse" swipe action,
+    /// but that whole tab was removed (Bryan's call: NomadNet-node
+    /// discovery happens through Tux search in Browser now, and the
+    /// tab's LXMF-specific job moved to Messages) — QR scanning is the
+    /// only remaining source of this hint.
     @State private var pendingBrowseHex: String?
 
     @ObservedObject private var messageStore = MessageStore.shared
     @ObservedObject private var bannerCenter = NotificationBannerCenter.shared
+    @ObservedObject private var downloadManager = DownloadManager.shared
+    @ObservedObject private var updateChecker = AppUpdateChecker.shared
 
     /// Identity naming + connection setup both now happen in
     /// ConnectionSetupWizardView (see StartupManager.awaitingSetup for
@@ -85,12 +84,6 @@ struct ContentView: View {
                     .tag(AppTab.messages)
                     .badge(messageStore.totalUnreadCount)
 
-                AnnounceView(selectedTab: $selectedTab, pendingBrowseHex: $pendingBrowseHex)
-                    .tabItem {
-                        Label(AppTab.announce.label, systemImage: AppTab.announce.icon)
-                    }
-                    .tag(AppTab.announce)
-
                 // Central by design — Browser (Tux as its home page) is
                 // meant to be IceNomad's day-to-day default, not one tab
                 // among equals. Sits in the middle slot on purpose.
@@ -100,17 +93,16 @@ struct ContentView: View {
                     }
                     .tag(AppTab.browser)
 
-                SettingsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, isShowingSetupWizard: $isShowingSetupWizard)
+                // Connections used to be its own tab — folded into a
+                // "Manage Connections" row here instead (Bryan's call:
+                // "no need for an extra button that causes confusion").
+                // ConnectionsView itself is unchanged internally, just
+                // reached via NavigationLink now instead of the tab bar.
+                SettingsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, pendingBrowseHex: $pendingBrowseHex, isShowingSetupWizard: $isShowingSetupWizard)
                     .tabItem {
                         Label(AppTab.settings.label, systemImage: AppTab.settings.icon)
                     }
                     .tag(AppTab.settings)
-
-                ConnectionsView(selectedTab: $selectedTab, pendingChatHex: $pendingChatHex, pendingBrowseHex: $pendingBrowseHex)
-                    .tabItem {
-                        Label(AppTab.connections.label, systemImage: AppTab.connections.icon)
-                    }
-                    .tag(AppTab.connections)
             }
             // Opening a chat from anywhere other than Messages' own list used
             // to route through a Binding into MessagesView and hope its
@@ -160,6 +152,37 @@ struct ContentView: View {
                 onSkip: { _ in isShowingSetupWizard = false }
             )
         }
+        // A tapped download's save-location prompt — asked *before* any
+        // network fetch happens (see DownloadManager's header comment),
+        // and lives here rather than on BrowserView so it always
+        // reliably appears the instant a link is tapped, whether or not
+        // the Downloads list sheet (also on BrowserView) happens to be
+        // open. See BrowserView's matching comment.
+        .sheet(item: $downloadManager.pendingExport) { export in
+
+            DocumentExporterView(url: export.placeholderURL) { pickedURL in
+                downloadManager.destinationPicked(id: export.id, url: pickedURL)
+            } onCancel: {
+                downloadManager.destinationPickCancelled(id: export.id)
+            }
+        }
+        // One check per launch, fired from here (not StartupManager) so
+        // it never gates or delays the splash sequence — this is purely
+        // informational, not something worth making the user wait on.
+        .onAppear {
+            AppUpdateChecker.shared.checkForUpdate()
+        }
+        .sheet(isPresented: updateAvailablePresented) {
+
+            if let update = updateChecker.availableUpdate {
+
+                UpdateAvailableView(
+                    update: update,
+                    onDismissForNow: { updateChecker.dismissForNow() },
+                    onAcknowledge: { updateChecker.acknowledge() }
+                )
+            }
+        }
     }
 
 
@@ -168,6 +191,15 @@ struct ContentView: View {
         Binding(
             get: { pendingChatHex != nil },
             set: { if !$0 { pendingChatHex = nil } }
+        )
+    }
+
+
+    private var updateAvailablePresented: Binding<Bool> {
+
+        Binding(
+            get: { updateChecker.availableUpdate != nil },
+            set: { if !$0 { updateChecker.dismissForNow() } }
         )
     }
 }
