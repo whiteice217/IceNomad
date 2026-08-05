@@ -53,15 +53,18 @@ struct NotificationSettingsSection: View {
 
     @ObservedObject private var notificationSettings = NotificationSettings.shared
 
-    /// Owned by `SettingsView` and presented from its `NavigationStack`,
-    /// not from this `@State` locally — attaching `.sheet` to a `Section`
-    /// nested inside a `Form` races the section row's own UICollectionView
-    /// cell lifecycle on first tap (confirmed live on both iOS and Mac
-    /// Catalyst: the picker would flash open then immediately close, only
-    /// working reliably on a *second* tap once the cell had settled).
-    /// Presenting from the stable, never-recycled `NavigationStack`
-    /// instead avoids that race entirely — same fix pattern already used
-    /// for ContentView's QR-scan-to-chat sheet.
+    /// Owned by `NotificationSettingsView` (this Section's sole host
+    /// now — Settings links to it via NavigationLink instead of
+    /// embedding it directly) and presented from there, not from this
+    /// `@State` locally — attaching `.sheet` to a `Section` nested
+    /// inside a `Form` alongside several unrelated sibling sections
+    /// races the section row's own UICollectionView cell lifecycle on
+    /// first tap (confirmed live on both iOS and Mac Catalyst: the
+    /// picker would flash open then immediately close, only working
+    /// reliably on a *second* tap once the cell had settled). Presenting
+    /// from the stable host page instead avoids that race entirely —
+    /// same fix pattern already used for ContentView's QR-scan-to-chat
+    /// sheet.
     @Binding var isPickingCustomSound: Bool
 
     var body: some View {

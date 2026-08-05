@@ -237,7 +237,9 @@ struct ConnectionsView: View {
     @State private var isShowingRNodePairing = false
     @State private var usbSerialPorts: [String] = []
     @State private var controllingConnection: Connection?
-    @State private var isShowingAddressQRCode = false
+    #if targetEnvironment(macCatalyst)
+    @State private var firmwareToolsConnection: Connection?
+    #endif
     @State private var isShowingScanner = false
     @State private var pendingScannedCode: ScannedCode?
     @State private var scanErrorMessage: String?
@@ -257,9 +259,14 @@ struct ConnectionsView: View {
     private let suggestedConnections = SuggestedConnection.all
 
 
+    // Reached via a NavigationLink from Settings now (Bryan's call: "no
+    // need for an extra button/tab that causes confusion" — Connections
+    // used to be its own top-level tab). No own NavigationStack here
+    // anymore; .navigationTitle/.toolbar below still work fine hosted
+    // inside Settings' NavigationStack. myAddressesCard (identity/QR)
+    // moved to MessagesView — "the your address and name can live in
+    // messages," so it's not duplicated here.
     var body: some View {
-        
-        NavigationStack {
 
             VStack {
 
@@ -268,10 +275,6 @@ struct ConnectionsView: View {
                     ScrollView {
 
                         VStack(spacing: 20) {
-
-                            myAddressesCard
-                                .padding(.horizontal)
-                                .padding(.top, 8)
 
                             Image(systemName: "antenna.radiowaves.left.and.right")
                                 .font(.system(size: 48))
@@ -304,6 +307,20 @@ struct ConnectionsView: View {
                                     color: Theme.rnodeBlue,
                                     title: "RNode (Bluetooth/USB)",
                                     body: "Pair a physical RNode-compatible LoRa radio. Turn it on and make sure it's paired in Bluetooth settings (or connected via USB) before adding it here."
+                                )
+
+                                // Per Bryan: needs to be clear and concise
+                                // that Tux's HTTP homepage/cache/search
+                                // are specific to the IceNomad Public
+                                // Relay below, for any other connection
+                                // added here — a different TCP relay, an
+                                // RNode, or any future connection type —
+                                // not just at wizard time.
+                                instructionRow(
+                                    icon: "sparkles",
+                                    color: Theme.accent,
+                                    title: "About Tux's Extras",
+                                    body: "Tux's homepage, cached pages, and search suggestions only work over the IceNomad Public Relay below. Any other relay or an RNode still reaches the real mesh with plain live browsing — you can still visit Tux directly, just without those extras."
                                 )
                             }
                             .padding(.horizontal)
@@ -373,13 +390,6 @@ struct ConnectionsView: View {
                 } else {
 
                     List {
-
-                        Section {
-                            myAddressesCard
-                        }
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
 
                         ForEach(connections) { conn in
 
@@ -475,6 +485,14 @@ struct ConnectionsView: View {
                                 } label: {
                                     Label("Radio Controls", systemImage: "slider.horizontal.3")
                                 }
+
+                                #if targetEnvironment(macCatalyst)
+                                Button {
+                                    firmwareToolsConnection = conn
+                                } label: {
+                                    Label("Firmware Tools", systemImage: "cpu")
+                                }
+                                #endif
                             }
 
                             Button(role: .destructive) {
@@ -592,7 +610,24 @@ struct ConnectionsView: View {
                     connectionMethod: conn.rnodeConfig?.connectionMethod ?? .bluetooth
                 )
             }
-        }
+            #if targetEnvironment(macCatalyst)
+            .sheet(item: $firmwareToolsConnection) { _ in
+
+                NavigationStack {
+                    Form {
+                        FirmwareToolsSection()
+                    }
+                    .scrollContentBackground(.hidden)
+                    .background(Theme.background)
+                    .navigationTitle("Firmware Tools")
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { firmwareToolsConnection = nil }
+                        }
+                    }
+                }
+            }
+            #endif
     }
 
 
@@ -1032,72 +1067,6 @@ struct ConnectionsView: View {
     }
     
     // MARK: - COMPONENTS
-
-    /// Your identity's own addresses — not tied to any one connection,
-    /// since they're derived from your identity key, not an interface.
-    /// Shown here since this is where people naturally look for "how do
-    /// I get reached."
-    var myAddressesCard: some View {
-
-        VStack(alignment: .leading, spacing: 10) {
-
-            Text("Your Address")
-                .font(.subheadline.weight(.semibold))
-
-            addressRow(label: "LXMF", value: LXMFDestination.myDestinationHashHex, description: "Share this so other LXMF/NomadNet users can message you.", scheme: "lxmf")
-        }
-        .padding(12)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-
-    func addressRow(label: String, value: String, description: String, scheme: String? = nil) -> some View {
-
-        VStack(alignment: .leading, spacing: 8) {
-
-            HStack(spacing: 6) {
-
-                Text(label)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.textSecondary)
-
-                Text(value)
-                    .font(.system(.caption, design: .monospaced))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            Text(description)
-                .font(.caption2)
-                .foregroundStyle(Theme.textSecondary)
-
-            // Full-size, clearly-labeled buttons instead of tiny bare
-            // icons — this is the primary "share my address" action in
-            // the app, worth being easy to hit and easy to read.
-            HStack(spacing: 10) {
-
-                Button {
-                    isShowingAddressQRCode = true
-                } label: {
-                    Label("QR Code", systemImage: "qrcode")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .sheet(isPresented: $isShowingAddressQRCode) {
-                    QRCodeView(label: label, value: value, scheme: scheme)
-                }
-
-                Button {
-                    UIPasteboard.general.string = value
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-            }
-            .controlSize(.regular)
-        }
-    }
 
 
     /// A muted, dashed-border "preset" row — tapping it pre-fills the TCP

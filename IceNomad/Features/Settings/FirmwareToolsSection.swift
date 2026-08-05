@@ -2,16 +2,24 @@
 //  FirmwareToolsSection.swift
 //  IceNomad
 //
-//  Mac-only for now: flashing an ESP32 means talking directly to a
-//  USB-serial device, which iOS doesn't allow third-party apps to do
-//  without MFi certification — a real platform restriction, not
-//  something we can code around. On iOS this just explains that and
-//  links out. On Mac, this is a real (if intentionally partial) start:
-//  detecting a connected board and confirming it's alive and talking
-//  the ESP32 ROM bootloader protocol. Actually writing firmware isn't
-//  built yet — see ESP32ROMLoader's doc comment for why that's a
-//  deliberately separate next step.
+//  Mac-only: flashing an ESP32 means talking directly to a USB-serial
+//  device, which iOS doesn't allow third-party apps to do without MFi
+//  certification — a real platform restriction, not something we can
+//  code around. Not shown on iOS at all (see SettingsView's call site)
+//  rather than a "use the Mac version" stub, since there's nothing
+//  actionable here for an iPhone user. This is a real (if intentionally
+//  partial) start: detecting a connected board and confirming it's
+//  alive and talking the ESP32 ROM bootloader protocol. Actually
+//  writing firmware isn't built yet — see ESP32ROMLoader's doc comment
+//  for why that's a deliberately separate next step.
 //
+//  This whole file is Mac Catalyst only — ESP32SerialPort/ESP32ROMLoader
+//  are themselves gated the same way (raw POSIX serial access isn't
+//  available to sandboxed iOS apps), so the type-check would fail on
+//  iOS even though SettingsView's call site already skips instantiating
+//  this view there.
+
+#if targetEnvironment(macCatalyst)
 
 import SwiftUI
 
@@ -21,29 +29,16 @@ struct FirmwareToolsSection: View {
 
         Section {
 
-            #if targetEnvironment(macCatalyst)
             FirmwareDetectRow()
-            #else
-            Link(destination: URL(string: "https://github.com/whiteice217/IceNomad")!) {
-                Label("Available on the Mac version of IceNomad", systemImage: "laptopcomputer")
-            }
-            #endif
 
         } header: {
             Text("RNode Firmware Tools")
         } footer: {
-
-            #if targetEnvironment(macCatalyst)
             Text("Detects a Heltec V3 connected over USB and confirms it's talking the ESP32 bootloader protocol. Flashing firmware isn't available yet — this is the first step.")
-            #else
-            Text("Flashing firmware over USB isn't something iOS allows third-party apps to do directly. Use IceNomad on a Mac for this.")
-            #endif
         }
     }
 }
 
-
-#if targetEnvironment(macCatalyst)
 
 private struct FirmwareDetectRow: View {
 
