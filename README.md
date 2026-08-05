@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/WanderingPenguin.png" width="180" alt="IceNomad">
+  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/WanderingPenguin.png" width="160" alt="IceNomad">
 </p>
 
 <h1 align="center">IceNomad</h1>
@@ -10,12 +10,47 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT">
+  <img src="https://img.shields.io/badge/platform-iOS%20%7C%20macOS-lightgrey" alt="Platform: iOS | macOS">
+  <img src="https://img.shields.io/badge/status-active%20development-brightgreen" alt="Status: Active Development">
+  <img src="https://img.shields.io/badge/built%20with-Swift%20%26%20SwiftUI-orange" alt="Built with Swift & SwiftUI">
+</p>
+
+<p align="center">
   <a href="https://icenomad.net">icenomad.net</a> &nbsp;·&nbsp;
+  <a href="https://tux.icenomad.net">tux.icenomad.net</a> &nbsp;·&nbsp;
   <a href="mailto:wanderingpenguin@icenomad.net">wanderingpenguin@icenomad.net</a> &nbsp;·&nbsp;
   <a href="https://github.com/whiteice217/IceNomad/issues">Report an issue</a>
 </p>
 
 ---
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/whiteice217/IceNomad/main/Images/PlatformShowcase.jpg" width="100%" alt="IceNomad on iPhone and Mac, alongside Tux, IceNomad's built-in Reticulum search engine">
+</p>
+
+<p align="center">
+  🖥️ <strong>Mac — live</strong> &nbsp;&nbsp;|&nbsp;&nbsp;
+  📱 <strong>iPhone — coming soon</strong> &nbsp;&nbsp;|&nbsp;&nbsp;
+  🐧 <strong>Linux — in the works</strong>
+</p>
+
+---
+
+## Table of Contents
+
+- [About](#about)
+- [Features](#features)
+- [New to Reticulum?](#new-to-reticulum)
+- [Download](#download)
+- [Tux — a search engine for Reticulum](#tux--a-search-engine-for-reticulum)
+- [Roadmap](#roadmap)
+- [Status](#status)
+- [The Story](#the-story)
+- [Built With](#built-with)
+- [Contributing](#contributing)
+- [Support IceNomad](#support-icenomad)
+- [License](#license)
 
 ## About
 
@@ -34,28 +69,45 @@ Connect over TCP to a remote transport node, or go direct over LoRa with an RNod
 - **QR code** scanning and sharing for addresses
 - **Adaptive light/dark theme**, native on both iOS and Mac
 - **First-launch onboarding** with a randomly generated penguin-themed identity, so you're never staring at a blank name field
+- **A bundled getting-started guide**, right in the app — Settings → Getting Started, no internet connection required to read it
 
-## Try It on Mac
+## New to Reticulum?
 
-IceNomad now runs as a genuinely native Mac app, built on the exact same SwiftUI codebase as iOS via Mac Catalyst — not a wrapper, not a separate port. It's in active testing right now.
+Never used a mesh network before? [**Read the User Guide**](USER_GUIDE.md) — a plain-language walkthrough of what Reticulum actually is, getting connected, messaging, browsing, and where to go if you get stuck. No prior networking knowledge assumed. It's also bundled straight into the app itself, under Settings → Getting Started.
 
-**The easiest way to run it today is to build it yourself** — see [BUILDING.md](BUILDING.md). It's a 10-minute process (mostly Xcode installing) and sidesteps macOS's Gatekeeper warnings entirely, since a locally-built app never picks up the "downloaded from the internet" flag that triggers them. No paid developer account, no security prompts to fight.
+## Download
 
-A downloadable DMG is also available for testers — reach out at [wanderingpenguin@icenomad.net](mailto:wanderingpenguin@icenomad.net) for access. Since it isn't notarized yet, macOS will show an "unidentified developer" warning on first launch — right-click the app and choose **Open** (instead of double-clicking) to get past it.
+### macOS — available now
+
+IceNomad runs as a genuinely native Mac app, built on the exact same SwiftUI codebase as iOS via Mac Catalyst — not a wrapper, not a separate port.
+
+**[⬇ Download the latest Mac build](https://github.com/whiteice217/IceNomad/releases/latest)** from GitHub Releases. It isn't notarized yet, so macOS will show an "unidentified developer" warning on first launch — right-click the app and choose **Open** (instead of double-clicking) to get past it. No paid developer account was needed to build it, and none is needed to run it.
+
+Prefer to build it yourself? See [BUILDING.md](BUILDING.md) — about 10 minutes, mostly Xcode installing, and it sidesteps the Gatekeeper warning entirely since a locally-built app never picks up the "downloaded from the internet" flag that triggers it.
+
+### iOS — coming soon
+
+The same codebase already runs on iPhone day-to-day during development — public distribution (TestFlight or otherwise) is next up. Watch this repo or [reach out](mailto:wanderingpenguin@icenomad.net) if you'd like to help test it early.
+
+### Linux — in the works
+
+A native Linux build is on the roadmap, using the same shared Reticulum/LXMF core this whole app is already built on. No timeline yet — this section will update the moment there's something to try.
 
 ## Tux — a search engine for Reticulum
 
 **Tux is live** at [tux.icenomad.net](https://tux.icenomad.net) — Reticulum's own search engine. It crawls NomadNet's `.mu` pages across the mesh, indexes what it finds, and makes the whole thing searchable, so you don't need to memorize a 32-character hash just to find a page you liked.
 
 - **Real full-text search** over hundreds of crawled nodes, with an AI layer that reads each site and writes a one-line summary for search results
-- **Categories that grow on their own** — sites get sorted into an evolving taxonomy (not a fixed list) as more of the mesh gets indexed, browsable at [tux.icenomad.net/categories](https://tux.icenomad.net/categories)
+- **Hierarchical categories** — sites get sorted into a small set of top-level topics with real depth underneath (e.g. `Literature > Poetry > French`), browsable at [tux.icenomad.net/categories](https://tux.icenomad.net/categories)
 - **Friendly names** — [claim a `.mu` name](https://tux.icenomad.net/claim) for your own node so people can find you by name instead of a hash
 - **No client required** — plain HTTPS at tux.icenomad.net works from any browser, no Reticulum stack needed
-- **Built into IceNomad** — Tux is the Browser tab's home page (when connected via the IceNomad Public Relay), with the same live search suggestions surfaced right in the address bar
+- **Built into IceNomad** — Tux is the Browser tab's home page (when connected via the IceNomad Public Relay), rendered as its real HTML — not a plainer reconstruction — with the same live search suggestions surfaced right in the address bar
 
 ## Roadmap
 
 ### Also in progress
+- **iOS public distribution** — see [Download](#download) above
+- **A native Linux build** — see [Download](#download) above
 - **Offline message delivery** — receiving LXMF messages sent while your app wasn't running, via propagation node support
 - **Always-on background operation on Mac** — stay reachable without keeping the app window open
 
