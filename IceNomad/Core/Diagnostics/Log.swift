@@ -24,4 +24,5 @@ enum Log {
     static let identity = Logger(subsystem: subsystem, category: "identity")
     static let audio = Logger(subsystem: subsystem, category: "audio")
     static let system = Logger(subsystem: subsystem, category: "system")
+    static let download = Logger(subsystem: subsystem, category: "download")
 }

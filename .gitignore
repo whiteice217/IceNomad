@@ -79,4 +79,8 @@ fastlane/test_output
 # Local development files
 *.local
 CLAUDE.md
+
+# Local release packaging — DMGs and staging folders are built here
+# and uploaded as GitHub Release assets, not committed to git history.
+dist/
 .DS_Store

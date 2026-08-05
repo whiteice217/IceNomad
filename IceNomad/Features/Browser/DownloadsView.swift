@@ -8,16 +8,18 @@ import UIKit
 
 // MARK: - Document export (save-location picker)
 
-/// Wraps UIDocumentPickerViewController's export flow so a finished
-/// download can be renamed and saved anywhere the user picks (Files,
-/// iCloud Drive, a third-party provider) — SwiftUI's own `.fileExporter`
+/// Wraps UIDocumentPickerViewController's export flow so the user can
+/// name/place a download *before* it fetches anything (see
+/// DownloadManager's header comment) — SwiftUI's own `.fileExporter`
 /// needs a `FileDocument`-conforming type, which is unnecessary ceremony
-/// for a file that already exists on disk as raw bytes; this exports the
-/// existing temp file directly, same as Safari's download-complete flow.
+/// here; this exports a small placeholder file directly, then reports
+/// back exactly where the system placed it so the real data can be
+/// written there once it arrives.
 struct DocumentExporterView: UIViewControllerRepresentable {
 
     let url: URL
-    let onFinish: () -> Void
+    let onPick: (URL) -> Void
+    let onCancel: () -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
 
@@ -29,23 +31,31 @@ struct DocumentExporterView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onFinish: onFinish)
+        Coordinator(onPick: onPick, onCancel: onCancel)
     }
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
 
-        let onFinish: () -> Void
+        let onPick: (URL) -> Void
+        let onCancel: () -> Void
 
-        init(onFinish: @escaping () -> Void) {
-            self.onFinish = onFinish
+        init(onPick: @escaping (URL) -> Void, onCancel: @escaping () -> Void) {
+            self.onPick = onPick
+            self.onCancel = onCancel
         }
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            onFinish()
+
+            guard let url = urls.first else {
+                onCancel()
+                return
+            }
+
+            onPick(url)
         }
 
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-            onFinish()
+            onCancel()
         }
     }
 }
@@ -133,6 +143,12 @@ struct DownloadsView: View {
                                 } else if item.isComplete {
 
                                     Text("Complete")
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.textSecondary)
+
+                                } else if item.awaitingDestination {
+
+                                    Text("Choose Save Location…")
                                         .font(.caption)
                                         .foregroundStyle(Theme.textSecondary)
 
