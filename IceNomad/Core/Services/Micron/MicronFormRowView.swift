@@ -23,6 +23,11 @@ struct MicronFormRowView: View {
 
     let spans: [MicronSpan]
     let alignment: TextAlignment
+    /// The viewport width this line has to work with — used to cap a
+    /// text field's width so it can't claim the whole row on a narrow
+    /// phone screen, and to size the wrapping FlowLayout below (see its
+    /// header comment for why a plain HStack isn't enough here).
+    let availableWidth: CGFloat
     @ObservedObject var formState: MicronFormState
     /// So a link can sit on the same line as a field — e.g. Tux's search
     /// box with its "Search" submit link right after it, one row instead
@@ -42,18 +47,16 @@ struct MicronFormRowView: View {
 
         VStack(alignment: alignment == .trailing ? .trailing : .leading, spacing: 6) {
 
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-
-                if alignment != .leading {
-                    Spacer(minLength: 0)
-                }
+            // A plain HStack never wraps — a field plus its submit link
+            // could run straight off the edge of a narrow phone screen
+            // in portrait mode with no way back (confirmed live: Tux's
+            // own search box did exactly this). FlowLayout instead drops
+            // whatever doesn't fit to a second line, same as text
+            // wrapping would.
+            FlowLayout(spacing: 6) {
 
                 ForEach(Array(spans.enumerated()), id: \.offset) { _, span in
                     spanView(for: span)
-                }
-
-                if alignment != .trailing {
-                    Spacer(minLength: 0)
                 }
             }
 
@@ -71,6 +74,18 @@ struct MicronFormRowView: View {
     }
 
 
+    /// A page author's declared field width (in characters) is a real
+    /// author intent worth respecting on a wide enough screen, but with
+    /// no cap at all a wide field (Tux's own search box: 24 characters,
+    /// 216pt) could claim most or all of a narrow phone's row by itself
+    /// — capped to a fraction of the actual viewport instead of trusting
+    /// the raw character count.
+    private func cappedFieldWidth(for field: MicronField) -> CGFloat {
+        let requested = CGFloat(min(max(field.width, 4), 40)) * 9
+        return min(requested, availableWidth * 0.7)
+    }
+
+
     @ViewBuilder
     private func spanView(for span: MicronSpan) -> some View {
 
@@ -82,7 +97,7 @@ struct MicronFormRowView: View {
                 TextField("", text: textBinding(for: field))
                     .textFieldStyle(.roundedBorder)
                     .font(Theme.micronFont(size: UIFont.preferredFont(forTextStyle: .body).pointSize))
-                    .frame(width: CGFloat(min(max(field.width, 4), 40)) * 9)
+                    .frame(width: cappedFieldWidth(for: field))
                     .textInputAutocapitalization(isSearchQuery(field) ? .sentences : .never)
                     .autocorrectionDisabled(!isSearchQuery(field))
                     .privacySensitive(field.masked)
@@ -168,5 +183,65 @@ struct MicronFormRowView: View {
     /// explicit and easy to extend if another server adopts it too.
     private func isSearchQuery(_ field: MicronField) -> Bool {
         field.name == "q"
+    }
+}
+
+
+/// Lays out children left-to-right, wrapping to a new row instead of
+/// overflowing when the next child doesn't fit — the wrapping behavior
+/// SwiftUI's HStack deliberately doesn't provide. Used instead of
+/// HStack for a field row's spans so a wide text field plus its submit
+/// link/label drop to a second line on a narrow phone screen rather
+/// than running past the edge with no way to reach the rest of the row.
+private struct FlowLayout: Layout {
+
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+
+        let maxWidth = proposal.width ?? .infinity
+        var rowWidth: CGFloat = 0
+        var totalHeight: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+
+            let size = subview.sizeThatFits(.unspecified)
+
+            if rowWidth > 0, rowWidth + spacing + size.width > maxWidth {
+                totalHeight += rowHeight + spacing
+                rowWidth = 0
+                rowHeight = 0
+            }
+
+            rowWidth += (rowWidth > 0 ? spacing : 0) + size.width
+            rowHeight = max(rowHeight, size.height)
+        }
+
+        totalHeight += rowHeight
+
+        return CGSize(width: maxWidth.isFinite ? maxWidth : rowWidth, height: totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+
+            let size = subview.sizeThatFits(.unspecified)
+
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+
+            subview.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }

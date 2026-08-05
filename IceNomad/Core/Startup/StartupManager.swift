@@ -196,7 +196,11 @@ class StartupManager: ObservableObject {
             LoadingMessages.preloadingTux,
             to: 0.98,
             maxDuration: 12,
-            until: { TuxPreloadStore.shared.content != nil || TuxPreloadStore.shared.failed }
+            until: {
+                TuxPreloadStore.shared.content != nil
+                    || TuxPreloadStore.shared.htmlContent != nil
+                    || TuxPreloadStore.shared.failed
+            }
         )
     }
 

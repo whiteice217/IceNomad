@@ -23,6 +23,26 @@ class InterfaceManager: ObservableObject {
 
     @Published private(set) var interfaces: [ReticulumInterface] = []
 
+    /// Matches SuggestedConnection.all's recommended "IceNomad Public
+    /// Relay" entry's address (ConnectionsView.swift) — kept as a
+    /// literal here rather than a cross-reference since that type lives
+    /// in Features, which this Core-layer file can't import. Keep the
+    /// two in sync if that entry's address ever changes.
+    static let iceNomadPublicRelayHost = "rns.icenomad.net"
+
+    /// Whether a connected TCP interface is actually IceNomad's own
+    /// relay, not just some other TCP/RNode connection — BrowserState's
+    /// Tux-cache tiers (real HTTP render, then Reticulum-cached .mu)
+    /// only make sense to try over our own relay; anyone using a
+    /// different relay or bridge falls straight to genuine live
+    /// browsing instead (Bryan's explicit call, 2026-08-04).
+    var isUsingIceNomadPublicRelay: Bool {
+        interfaces.contains { interface in
+            guard let tcpClient = interface as? TCPClient else { return false }
+            return tcpClient.isConnected && tcpClient.address == Self.iceNomadPublicRelayHost
+        }
+    }
+
     @Published var connectionStates: [String: Bool] = [:]
 
     @Published var receivedPacketCount: Int = 0

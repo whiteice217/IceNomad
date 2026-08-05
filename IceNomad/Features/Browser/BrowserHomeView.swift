@@ -53,7 +53,7 @@ struct BrowserHomeView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(Theme.textPrimary)
 
-                Text("Begin browsing by selecting the announce icon (\(Image(systemName: AppTab.announce.icon))) and choosing a node.")
+                Text("Begin browsing by typing an address, or tap the home icon (\(Image(systemName: "house"))) to search with Tux.")
                     .font(.subheadline)
                     .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -81,15 +81,12 @@ struct BrowserHomeView: View {
                     .foregroundStyle(Theme.textSecondary)
                     .tracking(0.5)
 
-                controlRow(
-                    icon: AppTab.announce.icon,
-                    text: "Shows any node that's announced itself, based on how many are kept — set from this Announce page, under **Keep Announces**."
-                )
+                controlRow(icon: "house", text: "Go straight to Tux, IceNomad's built-in search engine.")
+                controlRow(icon: "opticaldiscdrive.fill", text: "Toggle between Tux's cached pages (faster) and a live connection to the node.")
                 controlRow(icon: "chevron.left", text: "Wander back to the previous page.")
                 controlRow(icon: "chevron.right", text: "Wander forward to a page you'd gone back from.")
                 controlRow(icon: "star", text: "Favorite the current page for later Wandering.")
-                controlRow(icon: "arrow.clockwise", text: "Reload the page — or just pull down to refresh.")
-                controlRow(icon: "xmark", text: "Stop the page from loading.")
+                controlRow(icon: "arrow.clockwise", text: "Reload the page — or just pull down to refresh. Turns into a Stop button while a page is loading.")
                 controlRow(icon: "arrow.down.circle", text: "View active or past downloads — cancel one in progress, or clear finished ones from the list.")
             }
 

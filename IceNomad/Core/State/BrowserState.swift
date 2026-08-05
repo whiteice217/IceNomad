@@ -47,11 +47,45 @@ final class BrowserState: ObservableObject {
         var snippet: String
         var destinationHashHex: String
         var path: String
+        /// Other matching pages on this same node, each with its own
+        /// snippet — Tux's /suggest now consolidates per node (real AI
+        /// summary when one exists, an FTS snippet otherwise) instead of
+        /// every matching page showing up as its own separate, easy-to-
+        /// confuse-with-a-different-site result. Selecting a subpage
+        /// navigates straight to it, same as the parent suggestion.
+        var subpages: [Subpage] = []
+
+        struct Subpage: Identifiable {
+            let id = UUID()
+            var label: String
+            var snippet: String
+            var path: String
+        }
     }
 
     @Published private(set) var current: PageRef?
     @Published var addressText: String = ""
     @Published private(set) var content: String = BrowserState.welcomeContent
+    /// Non-nil when the current page is being shown via Tux's real HTML
+    /// renderer (main.py's /view/ route + micron.py — see fetchTuxHTML)
+    /// instead of the native Micron parser. Only ever populated when
+    /// Tux actually has the page; BrowserView switches to a WKWebView
+    /// for this case and falls back to `content`/native MicronView for
+    /// every other page, same as before this existed.
+    @Published private(set) var htmlContent: String? = nil
+
+    /// Which tier actually resolved the page currently on screen — nil
+    /// while loading or on an error page. BrowserView shows this as a
+    /// small color-coded badge (Theme.pageSourceTuxHTTP/TuxCache/Live)
+    /// so it's obvious at a glance whether what's showing is Tux's real
+    /// HTTP render, its Reticulum-cached .mu, or a genuine live fetch.
+    @Published private(set) var pageSource: PageSource? = nil
+
+    enum PageSource {
+        case tuxHTTP
+        case tuxCache
+        case live
+    }
     /// Live values for whatever `<...>` form fields the current page
     /// declares — reseeded fresh (see setContent) every time content
     /// changes, since a new page's fields have nothing to do with the
@@ -71,6 +105,66 @@ final class BrowserState: ObservableObject {
 
     private var backStack: [PageRef] = []
     private var forwardStack: [PageRef] = []
+
+    /// What actually rendered for a page this session, keyed by
+    /// "hash:path" — goBack()/goForward() check this first so
+    /// returning to an already-visited page is instant and shows
+    /// exactly what was there before, instead of a fresh re-fetch that
+    /// can legitimately land on a different tier than the first visit
+    /// did (confirmed live, 2026-08-05: Tux's HTTP tier's tight 0.5s
+    /// timeout — see fetchTuxHTML — missing on a retry where it
+    /// succeeded moments earlier is normal network jitter, not a bug in
+    /// itself, but showing a *different* render — the plain .mu
+    /// fallback — for the exact same page on "back" reads as one).
+    /// Fresh navigation (a link tap, the address bar) is unaffected —
+    /// it always fetches live, same as before this existed.
+    private struct CachedPage {
+        let pageSource: PageSource
+        let content: String
+        let htmlContent: String?
+    }
+    private var sessionPageCache: [String: CachedPage] = [:]
+
+    private func cacheKey(_ ref: PageRef) -> String {
+        "\(ref.destinationHashHex):\(ref.path)"
+    }
+
+    /// Called right after each tier's success path finishes updating
+    /// `content`/`htmlContent`/`pageSource` — never for the transient
+    /// loading placeholder or an error page, so those never get cached
+    /// as if they were real content.
+    private func cachePage(for ref: PageRef) {
+        guard let pageSource else { return }
+        sessionPageCache[cacheKey(ref)] = CachedPage(pageSource: pageSource, content: content, htmlContent: htmlContent)
+    }
+
+    /// Restores a cached render in place, with no network activity at
+    /// all — mirrors setContent/setHTMLContent's own effects exactly,
+    /// just from the cache instead of a fresh fetch. Deliberately
+    /// doesn't touch connectedDestinationHashHex/LinkManager bookkeeping
+    /// the way loadPage does: nothing here opens a new connection, so
+    /// there's nothing to tear down or reuse — if the page's own links
+    /// need a live fetch later, that goes through the normal tiers then.
+    @discardableResult
+    private func restoreFromCache(_ ref: PageRef) -> Bool {
+
+        guard let cached = sessionPageCache[cacheKey(ref)] else { return false }
+
+        isLoading = false
+        pageSource = cached.pageSource
+
+        if let html = cached.htmlContent {
+            htmlContent = html
+            content = ""
+            formState = MicronFormState()
+        } else {
+            htmlContent = nil
+            content = cached.content
+            formState = MicronFormState(document: MicronParser.parse(cached.content))
+        }
+
+        return true
+    }
 
     /// Guards a suggestions fetch the same way loadToken guards a page
     /// fetch — a stale response (the user kept typing) must not clobber
@@ -110,6 +204,105 @@ final class BrowserState: ObservableObject {
         addressText = "\(ref.destinationHashHex):\(ref.path)"
         connectedDestinationHashHex = ref.destinationHashHex
         setContent(content)
+    }
+
+
+    /// HTML counterpart to loadPreloadedHome — shows Tux's real website
+    /// homepage (TuxPreloadStore's parallel HTML fetch) instead of the
+    /// native `.mu` reconstruction. Preferred whenever available — see
+    /// TuxPreloadStore.htmlContent's doc comment. No
+    /// connectedDestinationHashHex here (unlike the native version):
+    /// this content came over plain HTTPS, not a Reticulum Link, so
+    /// there's genuinely nothing to reuse or tear down later.
+    func loadPreloadedHomeHTML(html: String) {
+
+        let ref = PageRef(destinationHashHex: Self.tuxDestinationHashHex, path: "/page/index.mu")
+
+        current = ref
+        addressText = "\(ref.destinationHashHex):\(ref.path)"
+        pageSource = .tuxHTTP
+        setHTMLContent(html)
+        cachePage(for: ref)
+    }
+
+
+    /// The Browser toolbar's Tux/house button's action — not the same
+    /// as goHome() below (that returns to whatever *current node's*
+    /// own home page is; this always means Tux specifically). Always
+    /// attempts Tux's real website homepage fresh (not the possibly-
+    /// stale startup preload), same tiered shape as loadPage but
+    /// hardcoded to Tux's own homepage. Bryan's explicit call
+    /// (2026-08-05): the app's homepage should always be "the full
+    /// version," as good-looking as it can be, so this deliberately
+    /// skips the "browsing Tux's own destination" carve-out loadPage
+    /// uses elsewhere (that exists to avoid a redundant cached-copy-
+    /// of-yourself hop while browsing Tux through Tux; there's no such
+    /// redundancy here, this *is* the direct source). IS gated behind
+    /// isUsingIceNomadPublicRelay, though — same as every other Tux-
+    /// HTTP/cache tier (corrected 2026-08-05 after first shipping this
+    /// ungated: HTTP-mode is a relay-specific feature here, not a
+    /// general "try it whenever the internet happens to work"
+    /// fallback). Off the relay, this behaves exactly like it always
+    /// did before any of this existed — straight to a live fetch of
+    /// Tux's own `/page/index.mu`.
+    func goToTuxHomepage() {
+
+        let ref = PageRef(destinationHashHex: Self.tuxDestinationHashHex, path: "/page/index.mu")
+
+        let token = UUID()
+        loadToken = token
+
+        isLoading = true
+        pageSource = nil
+        current = ref
+        addressText = "\(ref.destinationHashHex):\(ref.path)"
+        setContent(BrowserState.loadingContent(for: ref))
+
+        guard BrowserSettings.shared.preferCachedContent, InterfaceManager.shared.isUsingIceNomadPublicRelay else {
+            loadDirectFromNode(ref, token: token)
+            return
+        }
+
+        fetchTuxWebHomeHTML(token: token) { [weak self] html in
+
+            guard let self, self.loadToken == token else { return }
+
+            if let html {
+                self.isLoading = false
+                self.pageSource = .tuxHTTP
+                self.setHTMLContent(html)
+                self.cachePage(for: ref)
+                return
+            }
+
+            self.fetchTuxCachedMu(for: ref, token: token) { [weak self] found in
+
+                guard let self, self.loadToken == token, !found else { return }
+
+                self.loadDirectFromNode(ref, token: token)
+            }
+        }
+    }
+
+
+    private func fetchTuxWebHomeHTML(token: UUID, completion: @escaping (String?) -> Void) {
+
+        let request = URLRequest(url: Self.tuxWebBaseURL, timeoutInterval: 0.5)
+
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+
+            DispatchQueue.main.async {
+
+                guard let data, let html = String(data: data, encoding: .utf8),
+                      let http = response as? HTTPURLResponse, http.statusCode == 200
+                else {
+                    completion(nil)
+                    return
+                }
+
+                completion(html)
+            }
+        }.resume()
     }
 
 
@@ -164,7 +357,7 @@ final class BrowserState: ObservableObject {
             forwardStack.append(current)
         }
 
-        setCurrent(previous)
+        setCurrent(previous, preferCache: true)
     }
 
 
@@ -176,7 +369,7 @@ final class BrowserState: ObservableObject {
             backStack.append(current)
         }
 
-        setCurrent(next)
+        setCurrent(next, preferCache: true)
     }
 
 
@@ -342,6 +535,16 @@ final class BrowserState: ObservableObject {
     /// completion closure, after this function has already returned.
     private func fetchSuggestions(for text: String, tokenKeyPath: ReferenceWritableKeyPath<BrowserState, UUID>, assign: @escaping ([Suggestion]) -> Void) {
 
+        // Tux search is a relay-specific feature, same as the HTTP/
+        // cache tiers — off the IceNomad Public Relay (or with the
+        // Settings toggle off), the address bar just behaves like
+        // plain "hash:/path" addressing, no live suggestions at all.
+        guard BrowserSettings.shared.tuxSearchEnabled, InterfaceManager.shared.isUsingIceNomadPublicRelay else {
+            self[keyPath: tokenKeyPath] = UUID()
+            assign([])
+            return
+        }
+
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let looksLikeAddress = trimmed.firstIndex(of: ":").map { colonIndex in
@@ -385,18 +588,45 @@ final class BrowserState: ObservableObject {
                         }
 
                         var fields: [String: String] = [:]
+                        var subpagesValue: [MsgpackValue] = []
+
                         for (key, value) in pairs {
-                            guard case .string(let keyString) = key, case .string(let valueString) = value else {
+                            guard case .string(let keyString) = key else {
                                 continue
                             }
-                            fields[keyString] = valueString
+                            if case .string(let valueString) = value {
+                                fields[keyString] = valueString
+                            } else if keyString == "subpages", case .array(let subpageItems) = value {
+                                subpagesValue = subpageItems
+                            }
                         }
 
                         guard let label = fields["label"], let node = fields["node"], let path = fields["path"] else {
                             return nil
                         }
 
-                        return Suggestion(label: label, snippet: fields["snippet"] ?? "", destinationHashHex: node, path: path)
+                        let subpages: [Suggestion.Subpage] = subpagesValue.compactMap { subpageItem in
+
+                            guard case .map(let subpagePairs) = subpageItem else {
+                                return nil
+                            }
+
+                            var subpageFields: [String: String] = [:]
+                            for (key, value) in subpagePairs {
+                                guard case .string(let keyString) = key, case .string(let valueString) = value else {
+                                    continue
+                                }
+                                subpageFields[keyString] = valueString
+                            }
+
+                            guard let subLabel = subpageFields["label"], let subPath = subpageFields["path"] else {
+                                return nil
+                            }
+
+                            return Suggestion.Subpage(label: subLabel, snippet: subpageFields["snippet"] ?? "", path: subPath)
+                        }
+
+                        return Suggestion(label: label, snippet: fields["snippet"] ?? "", destinationHashHex: node, path: path, subpages: subpages)
                     }
 
                     assign(suggestions)
@@ -423,26 +653,47 @@ final class BrowserState: ObservableObject {
     private func setContent(_ text: String) {
         content = text
         formState = MicronFormState(document: MicronParser.parse(text))
+        htmlContent = nil
     }
 
 
-    private func setCurrent(_ ref: PageRef) {
+    /// Counterpart to setContent for the Tux-HTML tier (see
+    /// fetchTuxHTML) — no Micron parsing, no live form state, since the
+    /// page is rendered as real HTML in a WKWebView instead.
+    private func setHTMLContent(_ html: String) {
+        htmlContent = html
+        content = ""
+        formState = MicronFormState()
+    }
+
+
+    private func setCurrent(_ ref: PageRef, preferCache: Bool = false) {
 
         current = ref
         addressText = "\(ref.destinationHashHex):\(ref.path)"
+
+        if preferCache, restoreFromCache(ref) {
+            return
+        }
+
         loadPage(for: ref)
     }
 
 
     // MARK: - Fetching (real Link + Request/Response, over Resource for larger pages)
 
-    /// Two tiers, in order: Tux's cached-.mu view (a real cached copy if
-    /// Tux has crawled this page, or Tux fetching it live on the
-    /// client's behalf if not — already built, previously only reached
-    /// via search-result links, now also tried directly); if Tux
-    /// doesn't know the page at all, fall back to genuine live NomadNet
-    /// browsing — connecting straight to the target node, this app's
-    /// original and default behavior.
+    /// Three tiers, in order: Tux's real HTTP-rendered page (real CSS,
+    /// proper links/colors via main.py's /view/ route + micron.py —
+    /// Bryan's own side-by-side comparison found this noticeably better
+    /// looking than native Micron rendering for anything Tux has
+    /// actually crawled, 2026-08-04); if Tux doesn't have it reachable
+    /// over the open internet, its cached-.mu view over Reticulum (a
+    /// real cached copy if Tux has crawled this page, or Tux fetching it
+    /// live on the client's behalf if not — already built, previously
+    /// only reached via search-result links, now also tried directly);
+    /// if Tux doesn't know the page at all, fall back to genuine live
+    /// NomadNet browsing — connecting straight to the target node, this
+    /// app's original and default behavior.
     ///
     /// An AI-assisted "Reader" tier (Tux rewriting a page's prose for
     /// mobile via Ollama) was built and real-device-tested 2026-08-04,
@@ -483,33 +734,113 @@ final class BrowserState: ObservableObject {
         loadToken = token
 
         isLoading = true
+        pageSource = nil
         setContent(BrowserState.loadingContent(for: ref))
 
-        // Tux's cached-.mu tier only makes sense to try when Tux is
+        // Tux's cached tiers only make sense to try when Tux is
         // actually reachable at all — otherwise this is a wasted
         // connect-then-timeout delay on *every* page load for anyone
         // not using the IceNomad Public Relay. TuxPreloadStore.content
         // being non-nil is the same signal StartupManager already uses
-        // for "Tux is up." Browsing Tux's own pages skips straight to
-        // live too. A user can also force this unconditionally via
-        // Settings > Browsing ("Prefer Cached Pages" off) — checked
-        // first so it short-circuits before either of the other checks.
+        // for "Tux is up." The relay check is the authoritative gate,
+        // though — Bryan's explicit call: this whole system (both cache
+        // tiers, and the fast fail-fast timeouts below) only applies
+        // when actually connected through IceNomad's own relay; anyone
+        // on a different relay/bridge goes straight to live, same as if
+        // Tux were unreachable at all. Browsing Tux's own pages skips
+        // straight to live too. A user can also force this
+        // unconditionally via Settings > Browsing ("Prefer Cached
+        // Pages" off) — checked first so it short-circuits before any
+        // of the other checks.
         guard BrowserSettings.shared.preferCachedContent,
+              InterfaceManager.shared.isUsingIceNomadPublicRelay,
               TuxPreloadStore.shared.content != nil, ref.destinationHashHex != Self.tuxDestinationHashHex else {
             loadDirectFromNode(ref, token: token)
             return
         }
 
-        fetchTuxCachedMu(for: ref, token: token) { [weak self] found in
+        fetchTuxHTML(for: ref, token: token) { [weak self] html in
 
-            guard let self, self.loadToken == token, !found else { return }
+            guard let self, self.loadToken == token else { return }
 
-            self.loadDirectFromNode(ref, token: token)
+            if let html {
+                self.isLoading = false
+                self.pageSource = .tuxHTTP
+                self.setHTMLContent(html)
+                self.cachePage(for: ref)
+                return
+            }
+
+            self.fetchTuxCachedMu(for: ref, token: token) { [weak self] found in
+
+                guard let self, self.loadToken == token, !found else { return }
+
+                self.loadDirectFromNode(ref, token: token)
+            }
         }
     }
 
 
-    /// Tier 1: Tux's existing cached-.mu view (/page/view.mu) — a real
+    /// Tier 1: Tux's own public web face (tux.icenomad.net, real DNS +
+    /// Let's Encrypt cert — see the Tux vault note's "publicly live"
+    /// entry) rendering this exact page — a plain HTTPS GET, not a
+    /// Reticulum round-trip. Half a second, not longer: a real page
+    /// load can fall through up to three tiers now, and Bryan's ask was
+    /// for the whole chain to resolve in about 5 seconds total on a
+    /// bad/no connection, not stack each tier's own generous default on
+    /// top of the others. Matches against the same two literal "not
+    /// found" phrases main.py's view_page route uses for a node it's
+    /// never heard of or couldn't reach live — same "good enough, it's
+    /// Tux's own established convention" reasoning fetchTuxCachedMu
+    /// below already relies on, just checked against the HTML body
+    /// instead of raw .mu text.
+    private func fetchTuxHTML(for ref: PageRef, token: UUID, completion: @escaping (String?) -> Void) {
+
+        guard ref.path.hasPrefix("/page/"), let url = Self.tuxViewURL(for: ref) else {
+            completion(nil)
+            return
+        }
+
+        let request = URLRequest(url: url, timeoutInterval: 0.5)
+
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+
+            DispatchQueue.main.async {
+
+                guard let data, let html = String(data: data, encoding: .utf8),
+                      let http = response as? HTTPURLResponse, http.statusCode == 200,
+                      !html.contains("Tux has never seen it announce"),
+                      !html.contains("couldn't reach the node")
+                else {
+                    completion(nil)
+                    return
+                }
+
+                completion(html)
+            }
+        }.resume()
+    }
+
+
+    /// Tux's real website — plain HTTPS, nothing to do with Reticulum.
+    /// Not private: TuxPreloadStore's own startup HTML preload reuses
+    /// this exact URL.
+    static let tuxWebBaseURL = URL(string: "https://tux.icenomad.net")!
+
+    /// `ref.path` is always "/page/<subpath>" (see PageRef.parse and
+    /// every link normalizer that builds one) — main.py's /view/ route
+    /// reconstructs that same "/page/" prefix internally, so the
+    /// subpath handed to it here is exactly `path` with that prefix
+    /// stripped back off.
+    private static func tuxViewURL(for ref: PageRef) -> URL? {
+        let subpath = String(ref.path.dropFirst("/page/".count))
+        var components = URLComponents(url: tuxWebBaseURL, resolvingAgainstBaseURL: false)
+        components?.path = "/view/\(ref.destinationHashHex)/\(subpath)"
+        return components?.url
+    }
+
+
+    /// Tier 2: Tux's existing cached-.mu view (/page/view.mu) — a real
     /// cached copy if Tux has already crawled this page, or Tux fetching
     /// it live on the client's behalf if not (see crawler.py's
     /// _serve_view, built earlier this project, previously only reached
@@ -518,7 +849,22 @@ final class BrowserState: ObservableObject {
     /// contain that exact phrase — but it's Tux's own established
     /// not-found convention, and good enough for this to fall through to
     /// tier 3 rather than show Tux's error page for a node it never knew.
+    ///
+    /// Budgeted at 2 seconds total (connect + request together, via
+    /// withDeadline below) — a real Reticulum handshake plus request can
+    /// legitimately take longer than that on a slow relay, but this tier
+    /// exists purely as a fast convenience layer in front of tier 3
+    /// (genuine live browsing, unbounded); it isn't the only way to
+    /// reach the page.
     private func fetchTuxCachedMu(for ref: PageRef, token: UUID, completion: @escaping (Bool) -> Void) {
+
+        withDeadline(2.0, attempt: { [weak self] finish in
+            self?.attemptTuxCachedMu(for: ref, token: token, completion: finish)
+        }, timeoutValue: false, completion: completion)
+    }
+
+
+    private func attemptTuxCachedMu(for ref: PageRef, token: UUID, completion: @escaping (Bool) -> Void) {
 
         LinkManager.shared.connect(to: Self.tuxDestinationHashHex) { [weak self] connectResult in
 
@@ -546,7 +892,9 @@ final class BrowserState: ObservableObject {
                     }
 
                     self.isLoading = false
+                    self.pageSource = .tuxCache
                     self.setContent(text)
+                    self.cachePage(for: ref)
                     completion(true)
                 }
             }
@@ -554,7 +902,39 @@ final class BrowserState: ObservableObject {
     }
 
 
-    /// Tier 2: genuine live NomadNet browsing, connecting straight to
+    /// Races `attempt` against a plain wall-clock deadline — if it
+    /// hasn't called back by then, `completion` fires early with
+    /// `timeoutValue`, and whatever `attempt` eventually returns later
+    /// is silently dropped (the `didComplete` guard). Every call site
+    /// here runs on the main queue already (loadPage itself, and every
+    /// completion `attempt` can invoke — see their own doc comments),
+    /// so this needs no locking despite the two competing completions.
+    private func withDeadline<T>(
+        _ seconds: TimeInterval,
+        attempt: (@escaping (T) -> Void) -> Void,
+        timeoutValue: T,
+        completion: @escaping (T) -> Void
+    ) {
+
+        var didComplete = false
+
+        func complete(_ value: T) {
+            guard !didComplete else { return }
+            didComplete = true
+            completion(value)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            complete(timeoutValue)
+        }
+
+        attempt { value in
+            complete(value)
+        }
+    }
+
+
+    /// Tier 3: genuine live NomadNet browsing, connecting straight to
     /// the target node — unchanged from this app's original and only
     /// behavior before tonight.
     private func loadDirectFromNode(_ ref: PageRef, token: UUID) {
@@ -602,7 +982,9 @@ final class BrowserState: ObservableObject {
                             switch requestResult {
 
                             case .success(let data):
+                                self.pageSource = .live
                                 self.setContent(String(data: data, encoding: .utf8) ?? BrowserState.binaryContent(byteCount: data.count))
+                                self.cachePage(for: ref)
 
                             case .failure(let error):
                                 self.setContent(BrowserState.errorContent(for: ref, reason: BrowserState.describe(error)))

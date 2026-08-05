@@ -718,6 +718,20 @@ enum MicronParser {
             if possibleHash.count == 32, possibleHash.allSatisfy({ $0.isHexDigit }) {
                 destinationHashHex = possibleHash
                 path = String(destinationAndPath[destinationAndPath.index(after: colonIndex)...])
+
+            } else if possibleHash.isEmpty {
+
+                // Same-node shorthand — a leading colon with nothing
+                // before it (e.g. `[Label`:/page/x.mu]`) means "this
+                // node, this path," not "hash-then-path." Strip the
+                // colon here so it doesn't stay embedded in `path`:
+                // BrowserState always rebuilds the full address as
+                // "\(hash):\(path)" itself (setCurrent, submitForm), so
+                // a path that already starts with ":" produced a real,
+                // confirmed-live double-colon address ("HASH::/path")
+                // that broke navigation until the extra colon was
+                // manually removed.
+                path = String(destinationAndPath[destinationAndPath.index(after: colonIndex)...])
             }
         }
 

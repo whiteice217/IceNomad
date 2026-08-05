@@ -2,18 +2,19 @@
 //  FavoritesDrawerView.swift
 //  IceNomad
 //
-//  Mac Catalyst-only counterpart to FavoritesManagerPopover — a real
-//  in-view right-side drawer that shrinks BrowserView's content column
-//  instead of floating over it. On Mac, clicking the star button always
-//  opens this drawer now; the old short-tap "favorite/unfavorite the
-//  current page" gesture moves to the "Add/Remove This Page" row here
-//  instead of living on the star button itself. iOS keeps the existing
-//  short-tap-toggle + long-press-popover behavior unchanged. Folder
-//  grouping and the rename/move-to-folder interaction are ported from
-//  FavoritesManagerPopover rather than shared — both are file-private
-//  to their own view, and this drawer deliberately uses a real List
-//  (for native swipe-to-delete) where the popover uses a plain
-//  ScrollView/LazyVStack, so the two aren't pixel-identical by design.
+//  BrowserView's right-side favorites drawer — replaces the popover
+//  (FavoritesManagerPopover, now retired) on both platforms. Clicking
+//  the star button always opens this drawer now; the old short-tap
+//  "favorite/unfavorite the current page" gesture moves to the
+//  "Add/Remove This Page" row here instead of living on the star
+//  button itself. This view doesn't know or care whether BrowserView
+//  is presenting it as a push/shrink sibling (Mac Catalyst) or a
+//  dimmed overlay (iOS) — that's entirely BrowserView's layout
+//  concern, this is just the content. Folder grouping and the
+//  rename/move-to-folder interaction are a self-contained copy of
+//  what FavoritesManagerPopover used to do, not shared via import,
+//  and this drawer uses a real List (for native swipe-to-delete)
+//  where the popover used a plain ScrollView/LazyVStack.
 //
 
 import SwiftUI
@@ -104,7 +105,7 @@ struct FavoritesDrawerView: View {
                             }
 
                         } header: {
-                            Text(folder ?? "Unfiled")
+                            Text(folder ?? "Favorites")
                         }
                     }
                 }
@@ -171,7 +172,7 @@ struct FavoritesDrawerView: View {
             }
         }
 
-        // Unfiled (nil) always leads, named folders follow alphabetically.
+        // The default "Favorites" bucket (nil folder) always leads, named folders follow alphabetically.
         return order.sorted { lhs, rhs in
 
             switch (lhs, rhs) {
@@ -225,7 +226,7 @@ struct FavoritesDrawerView: View {
 
                 Menu {
 
-                    Button("Unfiled") {
+                    Button("Favorites") {
                         favoritesStore.setFolder(favorite, to: nil)
                     }
 

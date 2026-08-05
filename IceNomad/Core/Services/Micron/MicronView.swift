@@ -10,6 +10,19 @@
 
 import SwiftUI
 
+/// Reports a page's document-wide background color (see
+/// `documentUniformBackground` below) up to whatever's hosting this
+/// MicronView — BrowserView uses it to decide whether the rendered page
+/// gets the rounded "card" framing Tux's own HTTP renderer gives a page
+/// that declares a background (`container_style` in main.py's view_page
+/// route), instead of the flat, square-cornered fill this had before.
+struct MicronBackgroundKey: PreferenceKey {
+    static var defaultValue: Color? = nil
+    static func reduce(value: inout Color?, nextValue: () -> Color?) {
+        value = nextValue() ?? value
+    }
+}
+
 struct MicronView: View {
 
     let document: MicronDocument
@@ -99,6 +112,7 @@ struct MicronView: View {
         // seam shows the *right* color no matter where it comes from,
         // rather than chasing exact pixel alignment.
         .background(documentUniformBackground ?? Color.clear)
+        .preference(key: MicronBackgroundKey.self, value: documentUniformBackground)
     }
 
 
@@ -285,6 +299,7 @@ struct MicronView: View {
                 MicronFormRowView(
                     spans: line.spans,
                     alignment: line.alignment,
+                    availableWidth: availableWidth,
                     formState: formState,
                     onLinkTap: onLinkTap,
                     searchSuggestions: searchSuggestions,

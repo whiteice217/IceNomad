@@ -128,6 +128,24 @@ enum Theme {
         light: UIColor(red: 0.878, green: 0.906, blue: 0.933, alpha: 1),
         dark:  UIColor(red: 0.161, green: 0.220, blue: 0.290, alpha: 1)
     )
+
+
+    // MARK: - Browser page source
+    //
+    // Which of BrowserState's three tiers actually rendered the page
+    // currently on screen (see BrowserView's page-source badge) — blue
+    // for Tux's real HTTP render, a paler blue-white for Tux's
+    // Reticulum-cached .mu, green (matching this file's existing "green
+    // always means TCP" convention above) for genuine live browsing.
+
+    static let pageSourceTuxHTTP = rnodeBlue
+
+    static let pageSourceTuxCache = adaptive(
+        light: UIColor(red: 0.796, green: 0.878, blue: 0.949, alpha: 1),
+        dark:  UIColor(red: 0.804, green: 0.878, blue: 0.937, alpha: 1)
+    )
+
+    static let pageSourceLive = tcpGreen
 }
 
 

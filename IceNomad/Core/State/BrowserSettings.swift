@@ -17,16 +17,32 @@ final class BrowserSettings: ObservableObject {
     static let shared = BrowserSettings()
 
     private let preferCachedContentKey = "browser_prefer_cached_content"
+    private let tuxSearchEnabledKey = "browser_tux_search_enabled"
     private let customHomepageAddressKey = "browser_custom_homepage_address"
 
     /// When true (default — this app's existing behavior), page loads
     /// try Tux's cached .mu view first and fall back to a live
     /// connection only if Tux doesn't know the page. When false ("Live
     /// mode" in Settings), every navigation skips straight to a live
-    /// connection, same as Tux being unreachable.
+    /// connection, same as Tux being unreachable. Both this and
+    /// tuxSearchEnabled below are additionally gated behind actually
+    /// being connected through the IceNomad Public Relay
+    /// (InterfaceManager.isUsingIceNomadPublicRelay) — this toggle only
+    /// controls the preference *within* that; someone on a different
+    /// relay can't get Tux's cache back just by leaving this on.
     @Published var preferCachedContent: Bool {
         didSet {
             UserDefaults.standard.set(preferCachedContent, forKey: preferCachedContentKey)
+        }
+    }
+
+    /// Live, Tux-backed address-bar/on-page search suggestions —
+    /// default on, same relay-gating caveat as preferCachedContent
+    /// above. Off the IceNomad Public Relay, the address bar always
+    /// behaves like plain "hash:/path" addressing regardless of this.
+    @Published var tuxSearchEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(tuxSearchEnabled, forKey: tuxSearchEnabledKey)
         }
     }
 
@@ -44,6 +60,7 @@ final class BrowserSettings: ObservableObject {
     private init() {
 
         preferCachedContent = UserDefaults.standard.object(forKey: preferCachedContentKey) as? Bool ?? true
+        tuxSearchEnabled = UserDefaults.standard.object(forKey: tuxSearchEnabledKey) as? Bool ?? true
         customHomepageAddress = UserDefaults.standard.string(forKey: customHomepageAddressKey)
     }
 

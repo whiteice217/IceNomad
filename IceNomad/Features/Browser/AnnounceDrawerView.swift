@@ -2,15 +2,18 @@
 //  AnnounceDrawerView.swift
 //  IceNomad
 //
-//  Mac Catalyst-only counterpart to MUSitesDropdown's popover — a real
-//  in-view left-side drawer that shrinks BrowserView's content column
-//  instead of floating over it, reintroducing the pre-69a72da node
-//  drawer specifically for Mac, where a persistent side panel is a more
-//  natural idiom than a popover. iOS keeps the existing popover
-//  unchanged. Sort option and row layout are ported from
-//  MUSitesDropdown rather than shared — both are small, file-private to
-//  their own view, and used in genuinely different containers (a capped
-//  320pt popover vs. an uncapped drawer that fills the window's height).
+//  A reusable "searchable list of peers, sortable by time/hops/A-Z"
+//  drawer — started life as BrowserView's own announce drawer
+//  (replacing the MUSitesDropdown popover, itself reintroducing the
+//  pre-69a72da node drawer idiom). Removed from Browser once the app's
+//  real Announce tab existed (it duplicated that tab), then that whole
+//  tab was later deleted too — its LXMF job moved to MessagesView (as
+//  "Announced Contacts"), and Bryan asked for a NomadNet-node-discovery
+//  version back in Browser on Mac specifically, since deleting the
+//  Announce tab left no way to see what's out there to browse. Both
+//  callers share this exact view; it doesn't know or care who's hosting
+//  it or how the peer list was filtered — title/empty-state text and
+//  the peer list itself are all passed in.
 //
 
 import SwiftUI
@@ -36,12 +39,15 @@ private enum AnnounceDrawerSortOption: String, CaseIterable, Identifiable {
 
 struct AnnounceDrawerView: View {
 
+    let title: String
     let sites: [Peer]
+    let emptyStateText: String
     @ObservedObject var contactStore: ContactStore
     let onSelect: (Peer) -> Void
     let onClose: () -> Void
 
     @State private var sortOption: AnnounceDrawerSortOption = .time
+    @State private var searchText = ""
 
     var body: some View {
 
@@ -49,7 +55,7 @@ struct AnnounceDrawerView: View {
 
             HStack {
 
-                Text("NomadNet")
+                Text(title)
                     .font(.headline)
 
                 Spacer()
@@ -66,6 +72,33 @@ struct AnnounceDrawerView: View {
             .padding(.top, 12)
             .padding(.bottom, 8)
 
+            HStack(spacing: 6) {
+
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Theme.textSecondary)
+
+                TextField("Search name, hash, or hops", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+
+                if !searchText.isEmpty {
+
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+
             Picker("Sort", selection: $sortOption) {
 
                 ForEach(AnnounceDrawerSortOption.allCases) { option in
@@ -80,9 +113,9 @@ struct AnnounceDrawerView: View {
 
             Divider()
 
-            if sites.isEmpty {
+            if searchFilteredSites.isEmpty {
 
-                Text("No MU sites heard yet.")
+                Text(sites.isEmpty ? emptyStateText : "No matches for \"\(searchText)\".")
                     .font(.subheadline)
                     .foregroundStyle(Theme.textSecondary)
                     .padding()
@@ -96,7 +129,7 @@ struct AnnounceDrawerView: View {
 
                     LazyVStack(alignment: .leading, spacing: 0) {
 
-                        ForEach(sorted(sites)) { site in
+                        ForEach(sorted(searchFilteredSites)) { site in
 
                             Button {
                                 onSelect(site)
@@ -113,6 +146,25 @@ struct AnnounceDrawerView: View {
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+
+    /// A pure number searches by hop count instead of name/hash — same
+    /// convention the old full Announce tab's search used.
+    private var searchFilteredSites: [Peer] {
+
+        let trimmed = searchText.trimmingCharacters(in: .whitespaces)
+
+        guard !trimmed.isEmpty else { return sites }
+
+        if let hopQuery = UInt8(trimmed) {
+            return sites.filter { $0.hopCount == hopQuery }
+        }
+
+        return sites.filter {
+            contactStore.displayName(for: $0.destinationHashHex).localizedCaseInsensitiveContains(trimmed)
+                || $0.destinationHashHex.localizedCaseInsensitiveContains(trimmed)
+        }
     }
 
 
