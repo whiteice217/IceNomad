@@ -182,6 +182,18 @@ struct ConnectionSetupWizardView: View {
 
     // MARK: - Step 2: Connection type
 
+    /// USB only actually works on Mac Catalyst
+    /// (RNodeConnectionMethod.allCases already excludes it on iOS) —
+    /// this text used to unconditionally mention it on both platforms,
+    /// which was wrong on iOS since there was never a USB option to pick.
+    private static let rNodeSubtitle: String = {
+        #if targetEnvironment(macCatalyst)
+        "Your own LoRa radio hardware — Bluetooth, USB, or WiFi."
+        #else
+        "Your own LoRa radio hardware — Bluetooth or WiFi."
+        #endif
+    }()
+
     private var connectionTypeStep: some View {
 
         ScrollView {
@@ -209,7 +221,7 @@ struct ConnectionSetupWizardView: View {
                 connectionTypeCard(
                     type: .rNode,
                     title: "RNode",
-                    subtitle: "Your own LoRa radio hardware — Bluetooth, USB, or WiFi.",
+                    subtitle: Self.rNodeSubtitle,
                     icon: "antenna.radiowaves.left.and.right"
                 )
             }

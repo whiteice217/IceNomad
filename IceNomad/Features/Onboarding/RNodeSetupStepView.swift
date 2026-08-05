@@ -35,9 +35,21 @@ struct RNodeSetupStepView: View {
                         .font(.title3.bold())
                         .foregroundStyle(Theme.textPrimary)
 
+                    // USB only actually works on Mac Catalyst
+                    // (RNodeConnectionMethod.allCases already excludes
+                    // it on iOS) — this text used to unconditionally
+                    // mention it on both platforms, which was just
+                    // wrong on iOS since there was never a USB option
+                    // to pick.
+                    #if targetEnvironment(macCatalyst)
                     Text("Connect over Bluetooth, USB, or WiFi.")
                         .font(.subheadline)
                         .foregroundStyle(Theme.textSecondary)
+                    #else
+                    Text("Connect over Bluetooth or WiFi.")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.textSecondary)
+                    #endif
                 }
 
                 labeledField("Name", text: $rnode.name)
